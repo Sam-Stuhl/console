@@ -1,0 +1,31 @@
+# Local dev runtime: Traefik + a test container.
+# Requires the external network to exist first: docker network create web
+services:
+  traefik:
+    image: traefik:v3.4
+    container_name: traefik
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - web
+    restart: unless-stopped
+
+  whoami:
+    image: traefik/whoami
+    container_name: whoami
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.whoami.rule=Host(`whoami.localhost`)
+      - traefik.http.routers.whoami.entrypoints=web
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
