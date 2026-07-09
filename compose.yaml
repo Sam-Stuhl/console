@@ -2,7 +2,9 @@
 # Requires the external network to exist first: docker network create web
 services:
   traefik:
-    image: traefik:v3.4
+    # v3.6+ required: Docker engine 29 dropped API versions older than 1.40,
+    # and Traefik <= v3.5 pins an older client API version.
+    image: traefik:v3.6
     container_name: traefik
     command:
       - --providers.docker=true
