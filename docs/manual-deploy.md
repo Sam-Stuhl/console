@@ -101,15 +101,27 @@ docker inspect app-demo-e5f6a7b --format '{{range .Config.Env}}{{println .}}{{en
    Docker provider fails with "client version 1.24 is too old". Symptom is a
    404 on every route with errors in `docker logs traefik`.
 
-2. **Overlap window is unresolved.** Between step 2 and step 4 two routers
-   match the same Host rule. Which one Traefik picks is not something we
-   should rely on; requests could hit the new, not-yet-verified container.
-   The window is seconds long, but it exists. Options for the deploy engine,
-   to decide in the deploy-engine session:
-   - give the new container's router a low `priority` label so the old router
-     keeps winning until it is removed, or
-   - lean on a Docker `HEALTHCHECK` so Traefik ignores the container until
-     healthy (would add a requirement to the contract).
+2. **Overlap window: resolved (2026-07-09, priority label).** Between step 2
+   and step 4 two routers match the same Host rule, and which one Traefik
+   picks must not be left to chance. Decision: every router the engine
+   creates carries an explicit `priority` label, strictly lower than the
+   live one's (live minus 1, counting down from 4000000000 on a project's
+   first deploy). Traefik always routes to the highest-priority matching
+   router, so the old container keeps all traffic until it is removed;
+   labels cannot change on a running container, hence the countdown instead
+   of a constant. The Docker `HEALTHCHECK` alternative was rejected because
+   the health command runs inside the container and scratch images (see
+   note 3) have nothing to run it with; it would have become a contract
+   requirement on every app image.
 
 3. **Reading env from a container**: use `docker inspect` (SDK: `attrs`), not
    exec. Works regardless of image contents.
+
+4. **Dev health checks cannot succeed from the host.** The engine probes
+   `http://<container>:<port><path>` container-to-container over `web`. In
+   prod the console is itself a container on that network; in dev (uvicorn
+   on the Mac, containers in Colima) container names do not resolve from
+   the host, so an end-to-end deploy in dev always fails at step 3 and
+   exercises the failure path instead. Deliberately no config escape hatch:
+   a dev-only code path that never runs in prod would be worse. To see the
+   happy path in dev, run the console in a container attached to `web`.

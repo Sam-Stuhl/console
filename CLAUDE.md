@@ -35,7 +35,16 @@ answered a health check. A failed deploy changes nothing.
   Traefik fails with "client version 1.24 is too old" (symptom: 404 on
   every route).
 - Webhooks authenticate via GitHub OIDC (pyjwt), no shared secrets.
-  Reject unless repository_owner == "sam-stuhl".
+  Reject unless repository_owner == "sam-stuhl". Workflows must request
+  the token with audience=console, and build-finished carries the repo's
+  console.toml text in its payload (no GitHub API fetch, no repo PAT).
+- Router-overlap fix: every engine-created router has an explicit Traefik
+  priority label, strictly below the live one's (countdown from 4e9), so
+  the old container keeps traffic until it is removed. Decided 2026-07-09;
+  see docs/manual-deploy.md note 2. Do not relitigate toward HEALTHCHECK.
+- Dev limitation: container names do not resolve from the host, so a
+  deploy run from host uvicorn always fails at the health check (that is
+  the failure path working). No config escape hatch; see runbook note 4.
 - console.toml contract: `secrets = [...]` must sit ABOVE the first
   [section] header (TOML assigns bare keys after a header to that section).
   The validator has a pointed error for the misplaced form.
@@ -47,12 +56,15 @@ answered a health check. A failed deploy changes nothing.
 
 ## Status (2026-07-09)
 
-Phases 0-2 complete: runtime proven, manual deploy spec in
-docs/manual-deploy.md (this is the deploy engine's spec), read-only
-container views, projects + revealable secrets + console.toml validator.
-Next is Phase 3: OIDC webhook receiver, deploy engine (resolve the
-router-overlap question documented in the runbook), reaper. Then deploy
-history UI + rollback, then server setup on the PC.
+Phases 0-3 complete: runtime proven, manual deploy spec in
+docs/manual-deploy.md, read-only container views, projects + revealable
+secrets + console.toml validator, and deploys are real: OIDC webhook
+receiver (/hooks/build-started, /hooks/build-finished), deploy engine
+(pull, run alongside, health check, priority-labeled swap), reaper on a
+60s tick, all state in the deployments table. Next is Phase 4: deploy
+history UI + rollback. Then server setup on the PC and the GitHub
+Actions workflow for the app repos (OIDC token with audience=console,
+build-finished payload includes console.toml).
 
 ## How Sam works
 
