@@ -13,25 +13,31 @@ export default function StatsCells({ id, running }: { id: string; running: boole
   if (!running) {
     return (
       <>
-        <td className="text-base-content/30">–</td>
-        <td className="text-base-content/30">–</td>
+        <td className="text-right font-mono text-xs text-faint">--</td>
+        <td className="text-right font-mono text-xs text-faint">--</td>
       </>
     )
   }
   if (!data) {
     return (
       <>
-        <td><span className="loading loading-dots loading-xs" /></td>
-        <td><span className="loading loading-dots loading-xs" /></td>
+        <td className="text-right">
+          <span className="skeleton inline-block h-3 w-10" />
+        </td>
+        <td className="text-right">
+          <span className="skeleton inline-block h-3 w-20" />
+        </td>
       </>
     )
   }
   return (
     <>
-      <td className="tabular-nums">{data.cpu_percent.toFixed(1)}%</td>
-      <td className="tabular-nums">
+      <td className="text-right font-mono text-xs tabular-nums">
+        {data.cpu_percent.toFixed(1)}%
+      </td>
+      <td className="text-right font-mono text-xs tabular-nums">
         {formatBytes(data.mem_usage)}
-        <span className="text-base-content/50"> / {formatBytes(data.mem_limit)}</span>
+        <span className="text-faint"> / {formatBytes(data.mem_limit)}</span>
       </td>
     </>
   )

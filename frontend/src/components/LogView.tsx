@@ -23,13 +23,16 @@ export default function LogView({ id }: { id: string }) {
     stickToBottom.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 16
   }
 
+  if (logs === undefined) {
+    return <div className="skeleton h-40 w-full rounded-box" />
+  }
   return (
     <pre
       ref={pre}
       onScroll={onScroll}
-      className="max-h-96 overflow-auto rounded-box bg-neutral p-4 text-xs leading-relaxed text-neutral-content"
+      className="max-h-96 overflow-auto rounded-box border border-base-300/60 bg-neutral p-4 font-mono text-xs leading-relaxed text-neutral-content"
     >
-      {logs === undefined ? 'Loading logs…' : logs || '(no output)'}
+      {logs || <span className="text-faint">(no output)</span>}
     </pre>
   )
 }

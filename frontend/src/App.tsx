@@ -4,15 +4,16 @@ import ContainerDetail from './pages/ContainerDetail'
 
 function App() {
   return (
-    <div className="min-h-screen bg-base-200">
-      <div className="navbar bg-base-100 shadow-sm">
-        <div className="mx-auto flex w-full max-w-5xl items-center">
-          <Link to="/" className="btn btn-ghost text-lg font-semibold tracking-tight">
+    <div className="min-h-screen bg-base-200 text-base-content">
+      <header className="border-b border-base-300">
+        <div className="mx-auto flex h-12 w-full max-w-6xl items-center gap-2 px-4 sm:px-6">
+          <Link to="/" className="flex items-center gap-2 font-mono text-sm font-medium">
+            <span aria-hidden className="inline-block size-2 rounded-xs bg-primary" />
             console
           </Link>
         </div>
-      </div>
-      <main className="mx-auto max-w-5xl p-4">
+      </header>
+      <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
         <Routes>
           <Route path="/" element={<ContainerList />} />
           <Route path="/containers/:id" element={<ContainerDetail />} />

@@ -1,4 +1,64 @@
 @import "tailwindcss";
+
 @plugin "daisyui" {
-  themes: dark --default;
+  themes: false;
+}
+
+/* "server room at midnight": chroma-0 soot neutrals, bone ink,
+   one ember accent. Status colors carry the semantics. */
+@plugin "daisyui/theme" {
+  name: "console";
+  default: true;
+  prefersdark: true;
+  color-scheme: "dark";
+
+  --color-base-100: oklch(0.155 0 0); /* panels, hovered rows */
+  --color-base-200: oklch(0.115 0 0); /* page */
+  --color-base-300: oklch(0.24 0 0);  /* hairlines */
+  --color-base-content: oklch(0.92 0.006 36);
+
+  --color-primary: oklch(0.66 0.18 36); /* ember */
+  --color-primary-content: oklch(0.985 0 0);
+  --color-secondary: oklch(0.62 0.01 36);
+  --color-secondary-content: oklch(0.115 0 0);
+  --color-accent: oklch(0.8 0.1 235); /* tempered steel */
+  --color-accent-content: oklch(0.13 0 0);
+  --color-neutral: oklch(0.09 0 0); /* log wells */
+  --color-neutral-content: oklch(0.82 0.008 36);
+
+  --color-info: oklch(0.74 0.12 235);
+  --color-info-content: oklch(0.13 0 0);
+  --color-success: oklch(0.74 0.15 155);
+  --color-success-content: oklch(0.13 0 0);
+  --color-warning: oklch(0.8 0.14 80);
+  --color-warning-content: oklch(0.13 0 0);
+  --color-error: oklch(0.64 0.19 25);
+  --color-error-content: oklch(0.985 0 0);
+
+  --radius-selector: 0.25rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.375rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+    Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+/* muted secondary text: 5.7:1 on base-200, comfortably readable */
+@utility text-muted {
+  color: oklch(0.62 0.008 36);
+}
+@utility text-faint {
+  color: oklch(0.48 0.006 36);
 }
