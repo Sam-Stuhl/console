@@ -72,11 +72,24 @@ The tunnel is the only way in; nothing is exposed on the PC or your LAN.
 1. Cloudflare **Zero Trust** dashboard -> **Networks -> Tunnels -> Create a
    tunnel** -> connector **Cloudflared** -> name it (e.g. `home-server`).
 2. Copy the **tunnel token** it shows.
-3. Add a **public hostname** to the tunnel:
-   - Subdomain `console`, domain `samstuhl.com`
-   - Type **HTTP**, URL **`traefik:80`**
-   (cloudflared runs in the compose network and reaches Traefik by name;
-   Traefik routes by the `console.samstuhl.com` Host header.)
+3. Add routes to the tunnel (type **Published application** in newer
+   dashboards, **HTTP**, service **`traefik:80`**). cloudflared runs in the
+   compose network and reaches Traefik by name; Traefik routes each request
+   to the right container by its Host header.
+   - `console.samstuhl.com` -> the console itself.
+   - `*.samstuhl.com` (a wildcard) -> every future app becomes reachable with
+     no further tunnel changes: register it in the console, deploy, and
+     Traefik routes its subdomain by the label the deploy engine sets. The
+     console never touches Cloudflare. Cloudflare matches the most specific
+     hostname first, so the explicit `console` route and the wildcard coexist.
+     If your plan refuses a proxied wildcard DNS record, skip the wildcard and
+     add each app's hostname here when you register it (a fresh subdomain
+     never conflicts).
+
+   The "Create a tunnel" wizard may not let you add routes until a connector
+   is actually connected. If so, finish creating the tunnel, put its token in
+   `.env` (below), bring the stack up (step 6) so the cloudflared container
+   connects, then come back and add these routes.
 4. Create a `.env` file next to `compose.prod.yaml`:
    ```
    TUNNEL_TOKEN=paste-the-token-here
@@ -96,6 +109,13 @@ Zero Trust -> **Access -> Applications**. Create **two** self-hosted apps
   rejects any call whose OIDC token is not owned by Sam-Stuhl.)
 - **App B, the console UI** — hostname `console.samstuhl.com`, no path.
   One policy, action **Allow**, include your email.
+
+Every other app subdomain is public by default (the wildcard route sends it
+to Traefik). To put the same login in front of a specific app, flip the
+**access** toggle on its project page in the console (enable that with the
+Cloudflare Access token in step 9), or add the Access app by hand exactly like
+App B. Leave apps that do their own auth, or that must receive third-party
+webhooks, public.
 
 Then add a rate limit so nobody can flood `/hooks` with wrong-owner calls
 (each costs the console a token verification):
@@ -158,6 +178,38 @@ for the uvicorn "Application startup complete" line.
    with `read:packages`, then `docker login ghcr.io -u Sam-Stuhl` once. (Not
    needed for public app images.)
 5. Push the app repo. Watch the deploy appear and go live in the console.
+
+## 9. (Optional) Let the console manage Access logins
+
+The **access** toggle on a project page can put the Cloudflare login in front
+of that app for you, so you never open the dashboard. The console manages
+Access **applications only** (the login gate), never DNS, the tunnel, or
+routing.
+
+1. Cloudflare dashboard -> **My Profile -> API Tokens -> Create Token ->
+   Custom token**. One permission: **Account -> Access: Apps and Policies ->
+   Edit**, scoped to your account. Create it and copy the token.
+2. Write the token to a file the console mounts (never in git):
+   ```
+   docker run --rm -v ${PWD}/secrets:/out busybox sh -c 'printf %s "PASTE_TOKEN_HERE" > /out/cf_api_token'
+   ```
+3. Find your **account id** (any domain -> Overview -> API on the right, or the
+   dashboard URL) and add it to `.env`:
+   ```
+   CF_ACCOUNT_ID=your-account-id
+   ```
+4. In `compose.prod.yaml`, uncomment the two `cf_api_token` lines (the console
+   service's `secrets:` entry and the top-level `secrets:` block), then:
+   ```
+   docker compose -f compose.prod.yaml up -d console
+   ```
+
+Now a project's **access** toggle creates or removes a self-hosted Access app
+for `{subdomain}.samstuhl.com` with an Allow policy for the emails you list.
+Turning it off deletes the app (the site goes public again). Without this
+token the toggle returns 503 and everything else keeps working. The token is
+scoped to Access apps and policies alone, so even a console compromise cannot
+touch DNS, the tunnel, or the rest of your account.
 
 ## Updating the console later
 
