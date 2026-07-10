@@ -137,6 +137,50 @@ export const revealSecret = (projectId: string, key: string) =>
 export const deleteSecret = (projectId: string, key: string) =>
   request<void>(`/api/projects/${projectId}/secrets/${key}`, jsonInit('DELETE'))
 
+export interface ImportResult {
+  added: string[]
+  updated: string[]
+  skipped: string[]
+}
+
+export interface TomlValidation {
+  valid: boolean
+  error: string | null
+  warnings: string[]
+  summary: {
+    name: string
+    subdomain: string
+    port: number
+    health: string
+    resources: string
+    env_keys: string[]
+    secrets: string[]
+  } | null
+}
+
+export interface StarterFiles {
+  console_toml: string
+  dockerfile: string
+}
+
+export const importSecrets = (projectId: string, text: string) =>
+  request<ImportResult>(
+    `/api/projects/${projectId}/secrets/import`,
+    jsonInit('POST', { text }),
+  )
+
+export const exportSecrets = (projectId: string) =>
+  request<{ env: string }>(
+    `/api/projects/${projectId}/secrets/export`,
+    jsonInit('POST'),
+  )
+
+export const validateConsoleToml = (text: string) =>
+  request<TomlValidation>('/api/validate/console-toml', jsonInit('POST', { text }))
+
+export const fetchStarters = (projectId: string) =>
+  getJson<StarterFiles>(`/api/projects/${projectId}/starters`)
+
 export const fetchDeployments = (projectId: string) =>
   getJson<DeploymentSummary[]>(`/api/projects/${projectId}/deployments`)
 

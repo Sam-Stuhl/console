@@ -1,11 +1,16 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ImportResult } from '../api/client'
 import {
   deleteSecret,
+  exportSecrets,
   fetchSecrets,
+  importSecrets,
   putSecret,
   revealSecret,
 } from '../api/client'
+import DropTextArea from './DropTextArea'
+import { copyText } from '../lib/clipboard'
 const KEY_PATTERN = '[A-Z_][A-Z0-9_]*'
 
 export default function SecretsSection({ projectId }: { projectId: string }) {
@@ -22,6 +27,10 @@ export default function SecretsSection({ projectId }: { projectId: string }) {
   const [newValue, setNewValue] = useState('')
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [copied, setCopied] = useState(false)
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ['secrets', projectId] })
@@ -57,6 +66,30 @@ export default function SecretsSection({ projectId }: { projectId: string }) {
     onSuccess: (data) => {
       setActionError(null)
       setRevealed((r) => ({ ...r, [data.key]: data.value }))
+    },
+    onError: (err: Error) => setActionError(err.message),
+  })
+
+  const doImport = useMutation({
+    mutationFn: () => importSecrets(projectId, importText),
+    onSuccess: (result) => {
+      setActionError(null)
+      setImportResult(result)
+      setImporting(false)
+      setImportText('')
+      setRevealed({})
+      refresh()
+    },
+    onError: (err: Error) => setActionError(err.message),
+  })
+
+  const doExport = useMutation({
+    mutationFn: () => exportSecrets(projectId),
+    onSuccess: async (data) => {
+      setActionError(null)
+      await copyText(data.env)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
     },
     onError: (err: Error) => setActionError(err.message),
   })
@@ -163,6 +196,72 @@ export default function SecretsSection({ projectId }: { projectId: string }) {
             ))}
           </tbody>
         </table>
+      )}
+
+      <div className="flex items-center gap-4 font-mono text-xs">
+        {importing ? (
+          <ActionLink
+            label="cancel import"
+            onClick={() => {
+              setImporting(false)
+              setImportText('')
+            }}
+          />
+        ) : (
+          <ActionLink
+            label="import .env"
+            onClick={() => {
+              setImportResult(null)
+              setImporting(true)
+            }}
+          />
+        )}
+        {secrets.length > 0 &&
+          (copied ? (
+            <span className="text-success">copied</span>
+          ) : (
+            <ActionLink label="copy as .env" onClick={() => doExport.mutate()} />
+          ))}
+      </div>
+
+      {importing && (
+        <div className="flex flex-col gap-2">
+          <DropTextArea
+            value={importText}
+            onChange={setImportText}
+            placeholder={'paste .env contents here, or drop the file onto this box\n\nDATABASE_URL=postgres://...\nAPI_KEY="..."'}
+          />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              disabled={doImport.isPending || !importText.trim()}
+              onClick={() => doImport.mutate()}
+              className="btn btn-primary btn-sm font-mono"
+            >
+              import
+            </button>
+            <span className="font-mono text-xs text-faint">
+              existing keys with the same name are overwritten
+            </span>
+          </div>
+        </div>
+      )}
+
+      {importResult && (
+        <div className="flex flex-col gap-1 font-mono text-xs">
+          <p className="text-muted">
+            imported: {importResult.added.length} added
+            {importResult.added.length > 0 && ` (${importResult.added.join(', ')})`}
+            , {importResult.updated.length} updated
+            {importResult.updated.length > 0 &&
+              ` (${importResult.updated.join(', ')})`}
+          </p>
+          {importResult.skipped.map((reason) => (
+            <p key={reason} className="text-warning">
+              skipped {reason}
+            </p>
+          ))}
+        </div>
       )}
 
       <form

@@ -4,6 +4,7 @@ import { deleteProject, fetchProject } from '../api/client'
 import { localDay } from '../lib/format'
 import SecretsSection from '../components/SecretsSection'
 import DeploymentsSection from '../components/DeploymentsSection'
+import StartersSection from '../components/StartersSection'
 import ConfirmButton from '../components/ConfirmButton'
 
 export default function ProjectDetail() {
@@ -80,6 +81,8 @@ export default function ProjectDetail() {
       </Section>
 
       <Section title="secrets">{id && <SecretsSection projectId={id} />}</Section>
+
+      <Section title="starter files">{id && <StartersSection projectId={id} />}</Section>
 
       <Section title="danger">
         <div className="flex items-center gap-4">

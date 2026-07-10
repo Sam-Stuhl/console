@@ -5,6 +5,7 @@ import ProjectList from './pages/ProjectList'
 import ProjectNew from './pages/ProjectNew'
 import ProjectDetail from './pages/ProjectDetail'
 import DeploymentDetail from './pages/DeploymentDetail'
+import ValidateToml from './pages/ValidateToml'
 
 function navClass({ isActive }: { isActive: boolean }) {
   return `font-mono text-sm transition-colors duration-150 ${
@@ -28,6 +29,9 @@ function App() {
             <NavLink to="/containers" end className={navClass}>
               containers
             </NavLink>
+            <NavLink to="/validate" end className={navClass}>
+              toml check
+            </NavLink>
           </nav>
         </div>
       </header>
@@ -40,6 +44,7 @@ function App() {
             path="/projects/:id/deployments/:deploymentId"
             element={<DeploymentDetail />}
           />
+          <Route path="/validate" element={<ValidateToml />} />
           <Route path="/containers" element={<ContainerList />} />
           <Route path="/containers/:id" element={<ContainerDetail />} />
         </Routes>
