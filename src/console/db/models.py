@@ -44,8 +44,11 @@ class Deployment(Base):
     log: Mapped[str | None] = mapped_column(Text)
     failure_reason: Mapped[str | None] = mapped_column(Text)
     config_snapshot: Mapped[str | None] = mapped_column(Text)  # console.toml as JSON
+    container_name: Mapped[str | None] = mapped_column(Text)
+    router_priority: Mapped[int | None]
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     build_finished_at: Mapped[datetime | None]
+    deploy_started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
 
 

@@ -12,13 +12,14 @@ dependencies = [
     "alembic",
     "cryptography",
     "pydantic",
+    "pyjwt[crypto]",
+    "httpx",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "pytest-asyncio",
-    "httpx",
 ]
 
 [build-system]
