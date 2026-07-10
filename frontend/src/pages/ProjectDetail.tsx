@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteProject, fetchProject } from '../api/client'
+import { deleteProject, fetchDeployments, fetchProject } from '../api/client'
 import { localDay } from '../lib/format'
 import SecretsSection from '../components/SecretsSection'
 import DeploymentsSection from '../components/DeploymentsSection'
-import StartersSection from '../components/StartersSection'
+import SetupSection from '../components/SetupSection'
 import ConfirmButton from '../components/ConfirmButton'
 
 export default function ProjectDetail() {
@@ -17,6 +17,15 @@ export default function ProjectDetail() {
     queryFn: () => fetchProject(id!),
     enabled: Boolean(id),
   })
+
+  // Shares the cache with DeploymentsSection's polling query, so the setup
+  // section disappears on its own when the first deploy lands
+  const { data: deployments } = useQuery({
+    queryKey: ['deployments', id],
+    queryFn: () => fetchDeployments(id!),
+    enabled: Boolean(id),
+  })
+  const needsSetup = deployments !== undefined && deployments.length === 0
 
   const remove = useMutation({
     mutationFn: () => deleteProject(id!),
@@ -76,13 +85,21 @@ export default function ProjectDetail() {
         )}
       </div>
 
-      <Section title="deployments">
-        {id && <DeploymentsSection projectId={id} branch={project?.branch ?? 'main'} />}
-      </Section>
+      {needsSetup && id && (
+        <Section title="next steps">
+          <SetupSection projectId={id} branch={project?.branch ?? 'main'} />
+        </Section>
+      )}
+
+      {!needsSetup && (
+        <Section title="deployments">
+          {id && (
+            <DeploymentsSection projectId={id} branch={project?.branch ?? 'main'} />
+          )}
+        </Section>
+      )}
 
       <Section title="secrets">{id && <SecretsSection projectId={id} />}</Section>
-
-      <Section title="starter files">{id && <StartersSection projectId={id} />}</Section>
 
       <Section title="danger">
         <div className="flex items-center gap-4">

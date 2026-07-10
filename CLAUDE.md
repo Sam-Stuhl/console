@@ -69,7 +69,10 @@ call, 2026-07-09). Quality of life shipped 2026-07-09: .env import
 (paste or drop, server-side parse, bad lines reported) and copy-as-.env
 export in the secrets section, a toml check page running the deploy
 validator, and starter console.toml/Dockerfile templates prefilled per
-project (a test holds the toml starter to the real validator). Next:
+project (a test holds the toml starter to the real validator). The
+starters render as a "next steps" checklist on the project page only
+until the first deployment exists, then disappear (Sam's call: setup
+content does not belong on a working project). Next:
 server setup on the PC and the GitHub Actions workflow for the app
 repos (OIDC token with audience=console, build-finished payload
 includes console.toml).
