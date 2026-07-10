@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
 .pytest_cache/
 .env
 *.env
@@ -8,3 +9,7 @@ __pycache__/
 console.db
 .DS_Store
 .console_key*
+.vscode/
+.idea/
+.claude/
+CLAUDE.md

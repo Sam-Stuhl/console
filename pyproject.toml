@@ -2,6 +2,7 @@
 name = "console"
 version = "0.1.0"
 description = "Single-tenant self-hosted PaaS control plane"
+license = { text = "MIT" }
 requires-python = ">=3.13"
 dependencies = [
     "fastapi",

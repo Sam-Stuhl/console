@@ -1,7 +1,41 @@
 # console
 
-Single-tenant self-hosted PaaS control plane. Phase 1: read-only container
-console over the local Docker socket.
+A single-tenant, self-hosted PaaS control plane. It is the web console I use to deploy my own projects to a home server: a FastAPI + React app that registers projects, receives build webhooks, pulls images, runs zero-downtime deploys behind Traefik, and keeps a deploy history I can roll back from. Think of a small, personal Render or Railway that I own end to end.
+
+## What it does
+
+- **Projects**: register an app, give it a `console.toml`, and manage it from one place.
+- **Deploys**: GitHub Actions builds an image and pushes it to GHCR; a webhook tells the console, which pulls the image and runs it. The new container starts alongside the old one and only takes traffic after it passes a health check.
+- **Zero-downtime swaps**: routing is handled by Traefik priority labels, so the live container keeps serving until its replacement is healthy. A failed deploy changes nothing.
+- **History and rollback**: every deploy is an append-only row. A rollback is just a normal deploy of an older build that once served traffic, run through the same pipeline, so it is as safe as any other deploy.
+- **Secrets**: per-project secrets encrypted at rest with Fernet, with paste-or-drop `.env` import and copy-as-`.env` export.
+- **Validation and starters**: a `console.toml` checker runs the real deploy validator, and each project gets prefilled starter `console.toml`, `Dockerfile`, and `deploy.yml` files as a setup checklist that disappears once the first deploy lands.
+
+## How a deploy works
+
+```
+GitHub Actions build -> push image to GHCR
+        -> POST /hooks/build-finished (authenticated by GitHub OIDC)
+        -> engine pulls the image and runs the new container alongside the live one
+        -> health check
+        -> Traefik priority label swap (new container takes traffic)
+        -> reaper removes the old container on its next tick
+```
+
+The safety invariant: the live container is never stopped until its replacement has answered a health check.
+
+Webhooks authenticate with GitHub OIDC (no shared secrets); the build workflow requests a token scoped to this console and the receiver rejects anything not owned by the expected account. The build logic lives once here as a reusable workflow, and each app repo calls it with a thin `deploy.yml`.
+
+## Architecture
+
+- **Backend**: FastAPI, SQLAlchemy 2.0 async, Alembic migrations, the Docker SDK for container operations, and PyJWT for OIDC verification. Secrets use Fernet with the key supplied via `CONSOLE_KEY_FILE` (never in git); without it the console runs but secret operations return a clear 503.
+- **Frontend**: React + Vite + TypeScript single-page app with a custom dense, monospace-for-machine-data UI. In production the built SPA is served by the same backend.
+- **Routing**: Traefik discovers containers by labels on an external Docker network named `web`. Adding an app never touches Traefik config.
+- **State**: Postgres (an opaque `DATABASE_URL`); deploy state lives in a `deployments` table.
+
+## Scope
+
+This is deliberately single-tenant and small. Some things are non-goals on purpose: no in-app auth (a Cloudflare Access edge handles it), no building on the server (GitHub Actions builds and pushes to GHCR; the server only pulls and runs), no log streaming (polling only), and no blue/green or multi-node orchestration.
 
 ## Dev setup
 
@@ -13,8 +47,7 @@ docker network create web
 docker compose up -d        # traefik + whoami test container
 ```
 
-Backend (once): create the venv and a console key. The key encrypts every
-stored secret; losing it means losing them all. It lives outside git.
+Backend (once): create the venv and a console key. The key encrypts every stored secret; losing it means losing them all. It lives outside git.
 
 ```bash
 python3 -m venv .venv
@@ -22,19 +55,14 @@ python3 -m venv .venv
 .venv/bin/python -m console.keygen .console_key.dev
 ```
 
-Run (migrations apply automatically on startup; `alembic upgrade head` also
-works standalone):
+Run (migrations apply automatically on startup; `alembic upgrade head` also works standalone):
 
 ```bash
 CONSOLE_KEY_FILE=.console_key.dev \
   .venv/bin/uvicorn console.main:app --port 8000 --app-dir src --reload
 ```
 
-Without a valid `CONSOLE_KEY_FILE` the console still runs; only secret
-operations fail, with a 503 explaining why. In production the key mounts
-read-only at `/run/secrets/console_key` (the default path).
-
-Frontend (second terminal; dev server proxies /api to :8000):
+Frontend (second terminal; the dev server proxies `/api` to `:8000`):
 
 ```bash
 cd frontend
@@ -42,13 +70,15 @@ npm install
 npm run dev                 # http://localhost:5173
 ```
 
-## Production mode
+For a production-style run, build the SPA and let uvicorn serve everything at `:8000`:
 
 ```bash
 cd frontend && npm run build
 ```
 
-Then uvicorn alone serves everything at :8000, SPA included.
+## Production
+
+`compose.prod.yaml` runs the stack tunnel-only: Traefik, the console image from GHCR, and cloudflared, with the database on a volume and the Fernet key mounted as a compose secret. The full server walkthrough is in [`docs/server-setup.md`](docs/server-setup.md); the hand-run deploy cycle that the engine automates is in [`docs/manual-deploy.md`](docs/manual-deploy.md).
 
 ## Tests
 
@@ -56,7 +86,6 @@ Then uvicorn alone serves everything at :8000, SPA included.
 .venv/bin/pytest
 ```
 
-## Docs
+## License
 
-- `docs/manual-deploy.md`: the hand-run deploy cycle that specs the future
-  deploy engine.
+MIT. See [LICENSE](LICENSE).
