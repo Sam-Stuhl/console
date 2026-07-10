@@ -65,9 +65,14 @@ receiver (/hooks/build-started, /hooks/build-finished), deploy engine
 deploy history API + UI and rollback. A rollback clones a build that
 served traffic into a fresh queued deployment (append-only history, same
 engine, same invariant); targets are only rows that went live (Sam's
-call, 2026-07-09). Next: server setup on the PC and the GitHub Actions
-workflow for the app repos (OIDC token with audience=console,
-build-finished payload includes console.toml).
+call, 2026-07-09). Quality of life shipped 2026-07-09: .env import
+(paste or drop, server-side parse, bad lines reported) and copy-as-.env
+export in the secrets section, a toml check page running the deploy
+validator, and starter console.toml/Dockerfile templates prefilled per
+project (a test holds the toml starter to the real validator). Next:
+server setup on the PC and the GitHub Actions workflow for the app
+repos (OIDC token with audience=console, build-finished payload
+includes console.toml).
 
 ## How Sam works
 
