@@ -7,3 +7,4 @@ __pycache__/
 !*.env.example
 console.db
 .DS_Store
+.console_key*
