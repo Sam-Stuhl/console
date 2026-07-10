@@ -37,9 +37,10 @@ services:
       # The deploy engine drives Docker, so the console needs the socket
       # read-write (Traefik only reads it).
       - /var/run/docker.sock:/var/run/docker.sock
-      # The SQLite DB (projects, secrets, deploy history) lives on a volume
-      # so it survives image updates and restarts.
-      - console-data:/data
+      # The SQLite DB (projects, secrets, deploy history) is a host bind-mount
+      # so it survives image updates and is easy to carry to a new machine:
+      # copy ./data plus ./secrets/console_key and you have the whole state.
+      - ./data:/data
     secrets:
       - console_key
       # Uncomment to let the console manage Cloudflare Access (the per-app
@@ -79,9 +80,6 @@ secrets:
     file: ./secrets/console_key
   # cf_api_token:
   #   file: ./secrets/cf_api_token
-
-volumes:
-  console-data:
 
 networks:
   web:

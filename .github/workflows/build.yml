@@ -1,7 +1,10 @@
-# Build the console's own image and push it to GHCR. The server pulls and
-# runs it (the console is never built on the server, and never deploys
-# itself). Runs on an amd64 runner, so the image matches the amd64 server
-# even though local dev is an arm64 Mac.
+# Build the console's own image and push it to GHCR, then deploy it on the
+# server via a self-hosted runner. The console is still never built on the
+# server, and never deploys itself THROUGH ITS OWN ENGINE (that would be
+# circular). This deploy is out-of-band: a plain docker compose pull + up. A
+# bad image restart-loops the console but never locks you out, because remote
+# docker can always re-pin the last good tag. Build runs on an amd64 runner so
+# the image matches the amd64 server even though local dev is an arm64 Mac.
 
 name: build console image
 
@@ -34,3 +37,22 @@ jobs:
           docker build -t "$IMAGE:$SHORT_SHA" -t "$IMAGE:latest" .
           docker push "$IMAGE:$SHORT_SHA"
           docker push "$IMAGE:latest"
+
+  deploy:
+    # Out-of-band self-update on the box, after the image is published. Runs on
+    # the server's own self-hosted runner. Only push events reach it, and forks
+    # cannot push to main, so a public fork PR can never execute here. Keep the
+    # box's clone clean (deploy-only): edit from elsewhere and push; the box
+    # pulls. A bad image restart-loops the console but never locks you out.
+    needs: build
+    runs-on: [self-hosted, Windows]
+    steps:
+      - name: Pull the new image and recreate the console
+        shell: powershell
+        # The deployed clone on the box. On a new machine, clone to this path
+        # (or edit it) and register a runner; nothing else changes.
+        working-directory: C:\Users\Sam\servers\console
+        run: |
+          git pull --ff-only
+          docker compose -f compose.prod.yaml pull console
+          docker compose -f compose.prod.yaml up -d console
