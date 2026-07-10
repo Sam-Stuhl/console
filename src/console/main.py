@@ -5,10 +5,13 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from console.api.containers import router as containers_router
+from console.api.projects import router as projects_router
+from console.api.secrets import router as secrets_router
+from console.secrets.crypto import KeyNotConfigured
 
 ROOT = Path(__file__).resolve().parents[2]
 DIST = ROOT / "frontend" / "dist"
@@ -30,6 +33,14 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="console", lifespan=lifespan)
 app.include_router(containers_router)
+app.include_router(projects_router)
+app.include_router(secrets_router)
+
+
+@app.exception_handler(KeyNotConfigured)
+async def _key_not_configured(_request, exc: KeyNotConfigured):
+    # Secret operations fail loudly; everything else keeps working.
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 # In production the built SPA is served straight from FastAPI: one process,
 # one container. In dev the Vite server serves the frontend and proxies /api
