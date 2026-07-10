@@ -61,6 +61,39 @@ COPY . .
 CMD ["python", "-m", "app"]
 """
 
+# The thin caller. All real logic lives once in the console repo's reusable
+# workflow; this just points at it and grants the permissions it needs.
+WORKFLOW_TEMPLATE = """\
+# Deploy {name} through the console.
+#
+# This is a thin caller. The build+notify logic lives once in
+# sam-stuhl/console/.github/workflows/app-deploy.yml; update it there and
+# every app picks it up. Pin @main to a commit sha if you want stability
+# over always-latest.
+#
+# One-time account setup (once, not per app):
+#   1. Console repo (if private): Settings -> Actions -> General -> Access
+#      -> allow "Accessible from repositories owned by sam-stuhl", so this
+#      caller can reach the reusable workflow.
+#   2. Cloudflare Access: add a Bypass policy for the /hooks/* path on the
+#      console hostname. Those endpoints authenticate themselves with the
+#      GitHub OIDC token, so Access must let them through.
+
+name: deploy
+
+on:
+  push:
+    branches: ["{branch}"]
+
+jobs:
+  deploy:
+    uses: sam-stuhl/console/.github/workflows/app-deploy.yml@main
+    permissions:
+      id-token: write
+      packages: write
+      contents: read
+"""
+
 
 def starter_files(project: Project) -> dict[str, str]:
     return {
@@ -68,6 +101,9 @@ def starter_files(project: Project) -> dict[str, str]:
             name=project.name, subdomain=project.subdomain
         ),
         "dockerfile": DOCKERFILE_TEMPLATE.format(
+            name=project.name, branch=project.branch
+        ),
+        "workflow": WORKFLOW_TEMPLATE.format(
             name=project.name, branch=project.branch
         ),
     }

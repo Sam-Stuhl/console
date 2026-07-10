@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import yaml
+
 from console.schema.console_toml import parse_console_toml
 
 PROJECT = {
@@ -5,6 +9,9 @@ PROJECT = {
     "repo": "sam-stuhl/fotoshare",
     "subdomain": "fotos",
 }
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REUSABLE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "app-deploy.yml"
 
 
 async def test_starters_are_prefilled_and_valid(client):
@@ -32,3 +39,42 @@ async def test_starters_are_prefilled_and_valid(client):
 
 async def test_starters_unknown_project_is_404(client):
     assert (await client.get("/api/projects/nope/starters")).status_code == 404
+
+
+async def test_caller_workflow_is_valid_and_wired(client):
+    project_id = (
+        await client.post(
+            "/api/projects",
+            json={**PROJECT, "name": "photos", "subdomain": "photos", "branch": "release"},
+        )
+    ).json()["id"]
+    workflow = (await client.get(f"/api/projects/{project_id}/starters")).json()[
+        "workflow"
+    ]
+
+    parsed = yaml.safe_load(workflow)
+    # yaml parses "on:" as the boolean True key
+    assert parsed[True] == {"push": {"branches": ["release"]}}  # prefilled branch
+    job = parsed["jobs"]["deploy"]
+    assert job["uses"] == "sam-stuhl/console/.github/workflows/app-deploy.yml@main"
+    assert job["permissions"]["id-token"] == "write"
+    assert job["permissions"]["packages"] == "write"
+
+
+def test_reusable_workflow_is_valid_and_authenticates_by_oidc():
+    parsed = yaml.safe_load(REUSABLE_WORKFLOW.read_text())
+    assert parsed[True] == {"workflow_call": None}  # only callable, not self-triggered
+
+    job = parsed["jobs"]["build-and-deploy"]
+    assert job["permissions"]["id-token"] == "write"
+    assert job["permissions"]["packages"] == "write"
+
+    body = REUSABLE_WORKFLOW.read_text()
+    assert "audience=console" in body  # the console's expected audience
+    assert "/hooks/build-started" in body
+    assert "/hooks/build-finished" in body
+    # both outcomes are reported so a broken build fails fast, not via reaper
+    assert "if: success()" in body
+    assert "if: failure()" in body
+    # commit message is bound to env, never inlined into a run script
+    assert "COMMIT_MSG: ${{ github.event.head_commit.message }}" in body

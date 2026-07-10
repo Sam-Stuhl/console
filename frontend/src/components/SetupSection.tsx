@@ -25,13 +25,21 @@ export default function SetupSection({
   const files = [
     {
       name: 'console.toml',
+      file: 'console.toml',
       content: starters.console_toml,
       hint: 'prefilled for this project; set the port, declare your secrets',
     },
     {
       name: 'Dockerfile',
+      file: 'Dockerfile',
       content: starters.dockerfile,
       hint: 'python example; swap the base image and commands for your stack',
+    },
+    {
+      name: '.github/workflows/deploy.yml',
+      file: 'deploy.yml',
+      content: starters.workflow,
+      hint: 'thin caller for the shared build workflow; no edits needed',
     },
   ]
 
@@ -41,11 +49,11 @@ export default function SetupSection({
     window.setTimeout(() => setCopiedFile(null), 2000)
   }
 
-  function download(name: string, content: string) {
+  function download(file: string, content: string) {
     const url = URL.createObjectURL(new Blob([content], { type: 'text/plain' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = name
+    a.download = file
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -59,8 +67,8 @@ export default function SetupSection({
       <ol className="flex list-none flex-col gap-3">
         <li className="flex flex-col gap-1">
           <span>
-            <span className="text-faint">1.</span> put these two files in the
-            repo root, commented instructions inside:
+            <span className="text-faint">1.</span> add these files to the repo
+            (console.toml and Dockerfile at the root), commented inside:
           </span>
           <table className="w-full">
             <tbody>
@@ -87,7 +95,7 @@ export default function SetupSection({
                       <button
                         type="button"
                         className="text-muted transition-colors duration-150 hover:text-base-content hover:underline"
-                        onClick={() => download(f.name, f.content)}
+                        onClick={() => download(f.file, f.content)}
                       >
                         download
                       </button>

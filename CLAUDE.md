@@ -38,6 +38,12 @@ answered a health check. A failed deploy changes nothing.
   Reject unless repository_owner == "sam-stuhl". Workflows must request
   the token with audience=console, and build-finished carries the repo's
   console.toml text in its payload (no GitHub API fetch, no repo PAT).
+- The build workflow is reusable: real logic lives once in this repo at
+  .github/workflows/app-deploy.yml (on: workflow_call); each app repo has
+  a thin caller (the deploy.yml starter). Two one-time setups: if the
+  console repo is private, allow sam-stuhl repos to call it (Actions ->
+  General -> Access); and Cloudflare Access must Bypass the /hooks/* path
+  since those endpoints self-authenticate via the OIDC token.
 - Router-overlap fix: every engine-created router has an explicit Traefik
   priority label, strictly below the live one's (countdown from 4e9), so
   the old container keeps traffic until it is removed. Decided 2026-07-09;
@@ -72,10 +78,12 @@ validator, and starter console.toml/Dockerfile templates prefilled per
 project (a test holds the toml starter to the real validator). The
 starters render as a "next steps" checklist on the project page only
 until the first deployment exists, then disappear (Sam's call: setup
-content does not belong on a working project). Next:
-server setup on the PC and the GitHub Actions workflow for the app
-repos (OIDC token with audience=console, build-finished payload
-includes console.toml).
+content does not belong on a working project). The GitHub Actions
+workflow is done too (2026-07-10): a reusable workflow in this repo,
+called by a thin per-app deploy.yml that the checklist now hands out as
+a third starter file. Next: server setup on the PC (docker login to
+ghcr.io, run the console as a container on network web, the Cloudflare
+Access bypass for /hooks), then a real end-to-end deploy.
 
 ## How Sam works
 

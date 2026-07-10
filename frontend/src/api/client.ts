@@ -161,6 +161,7 @@ export interface TomlValidation {
 export interface StarterFiles {
   console_toml: string
   dockerfile: string
+  workflow: string
 }
 
 export const importSecrets = (projectId: string, text: string) =>
