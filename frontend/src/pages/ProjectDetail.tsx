@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { deleteProject, fetchProject } from '../api/client'
 import { localDay } from '../lib/format'
 import SecretsSection from '../components/SecretsSection'
+import DeploymentsSection from '../components/DeploymentsSection'
 import ConfirmButton from '../components/ConfirmButton'
 
 export default function ProjectDetail() {
@@ -74,15 +75,11 @@ export default function ProjectDetail() {
         )}
       </div>
 
-      <Section title="secrets">{id && <SecretsSection projectId={id} />}</Section>
-
       <Section title="deployments">
-        <p className="font-mono text-xs text-muted">
-          no deployments yet. deploys are triggered by pushing to{' '}
-          {project?.branch ?? 'main'}; history will appear here once the deploy
-          pipeline lands.
-        </p>
+        {id && <DeploymentsSection projectId={id} branch={project?.branch ?? 'main'} />}
       </Section>
+
+      <Section title="secrets">{id && <SecretsSection projectId={id} />}</Section>
 
       <Section title="danger">
         <div className="flex items-center gap-4">

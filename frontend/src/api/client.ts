@@ -48,6 +48,28 @@ export interface SecretMeta {
   updated_at: string
 }
 
+export interface DeploymentSummary {
+  id: string
+  sha: string
+  commit_message: string | null
+  image: string | null
+  status: string
+  substate: string | null
+  run_url: string | null
+  failure_reason: string | null
+  created_at: string
+  build_finished_at: string | null
+  deploy_started_at: string | null
+  finished_at: string | null
+}
+
+export interface DeploymentDetail extends DeploymentSummary {
+  log: string | null
+  config_snapshot: string | null
+  container_name: string | null
+  router_priority: number | null
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
   if (!res.ok) {
@@ -114,3 +136,17 @@ export const revealSecret = (projectId: string, key: string) =>
 
 export const deleteSecret = (projectId: string, key: string) =>
   request<void>(`/api/projects/${projectId}/secrets/${key}`, jsonInit('DELETE'))
+
+export const fetchDeployments = (projectId: string) =>
+  getJson<DeploymentSummary[]>(`/api/projects/${projectId}/deployments`)
+
+export const fetchDeployment = (projectId: string, deploymentId: string) =>
+  getJson<DeploymentDetail>(
+    `/api/projects/${projectId}/deployments/${deploymentId}`,
+  )
+
+export const rollbackDeployment = (projectId: string, deploymentId: string) =>
+  request<{ deployment_id: string; status: string }>(
+    `/api/projects/${projectId}/deployments/${deploymentId}/rollback`,
+    jsonInit('POST'),
+  )

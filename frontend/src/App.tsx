@@ -4,6 +4,7 @@ import ContainerDetail from './pages/ContainerDetail'
 import ProjectList from './pages/ProjectList'
 import ProjectNew from './pages/ProjectNew'
 import ProjectDetail from './pages/ProjectDetail'
+import DeploymentDetail from './pages/DeploymentDetail'
 
 function navClass({ isActive }: { isActive: boolean }) {
   return `font-mono text-sm transition-colors duration-150 ${
@@ -35,6 +36,10 @@ function App() {
           <Route path="/" element={<ProjectList />} />
           <Route path="/projects/new" element={<ProjectNew />} />
           <Route path="/projects/:id" element={<ProjectDetail />} />
+          <Route
+            path="/projects/:id/deployments/:deploymentId"
+            element={<DeploymentDetail />}
+          />
           <Route path="/containers" element={<ContainerList />} />
           <Route path="/containers/:id" element={<ContainerDetail />} />
         </Routes>

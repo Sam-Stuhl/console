@@ -35,3 +35,22 @@ export function utcDate(iso: string): Date {
 export function localDay(iso: string): string {
   return utcDate(iso).toLocaleDateString()
 }
+
+export function since(iso: string | null): string {
+  if (!iso) return ''
+  const seconds = Math.max(0, Math.floor((Date.now() - utcDate(iso).getTime()) / 1000))
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+export function took(fromIso: string | null, toIso: string | null): string {
+  if (!fromIso || !toIso) return ''
+  const seconds = Math.round((utcDate(toIso).getTime() - utcDate(fromIso).getTime()) / 1000)
+  if (seconds < 0) return ''
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
