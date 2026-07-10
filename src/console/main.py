@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from console.api.containers import router as containers_router
+from console.api.deployments import router as deployments_router
 from console.api.hooks import router as hooks_router
 from console.api.projects import router as projects_router
 from console.api.secrets import router as secrets_router
@@ -53,6 +54,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="console", lifespan=lifespan)
 app.include_router(containers_router)
+app.include_router(deployments_router)
 app.include_router(hooks_router)
 app.include_router(projects_router)
 app.include_router(secrets_router)

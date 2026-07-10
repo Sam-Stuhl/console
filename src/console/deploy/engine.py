@@ -41,6 +41,23 @@ def enqueue(deployment_id: str) -> None:
     task.add_done_callback(_tasks.discard)
 
 
+async def supersede_older_queued(
+    session: AsyncSession, project_id: str, keep_id: str
+) -> None:
+    """Exactly one queued deployment per project: newest wins. The caller
+    must have flushed, so keep_id is a real row id."""
+    stale = await session.scalars(
+        select(Deployment).where(
+            Deployment.project_id == project_id,
+            Deployment.status == "queued",
+            Deployment.id != keep_id,
+        )
+    )
+    for old in stale:
+        old.status = "superseded"
+        old.finished_at = utcnow()
+
+
 async def run_deploy(deployment_id: str) -> None:
     async with SessionLocal() as session:
         deployment = await session.get(Deployment, deployment_id)

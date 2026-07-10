@@ -176,19 +176,7 @@ async def build_finished(
     # Flush so a row created in this request has its id assigned; the
     # sweep below must be able to exclude it.
     await session.flush()
-
-    # Exactly one queued deployment per project: newer wins
-    stale = await session.scalars(
-        select(Deployment).where(
-            Deployment.project_id == project.id,
-            Deployment.status == "queued",
-            Deployment.id != deployment.id,
-        )
-    )
-    for old in stale:
-        old.status = "superseded"
-        old.finished_at = utcnow()
-
+    await deploy_engine.supersede_older_queued(session, project.id, deployment.id)
     await session.commit()
     deploy_engine.enqueue(deployment.id)
     response.status_code = 202
