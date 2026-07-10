@@ -10,6 +10,7 @@ from console.db.models import Secret
 from console.db.session import get_session
 from console.schema.console_toml import SECRET_NAME_RE
 from console.secrets import crypto
+from console.secrets.dotenv import parse_dotenv, render_dotenv
 
 router = APIRouter(prefix="/api/projects/{project_id}/secrets")
 
@@ -91,3 +92,60 @@ async def delete_secret(
     secret = await _get_secret(session, project_id, key)
     await session.delete(secret)
     await session.commit()
+
+
+class DotenvText(BaseModel):
+    text: str
+
+
+@router.post("/import")
+async def import_secrets(
+    project_id: str,
+    body: DotenvText,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Bulk import from .env contents. Existing keys are overwritten (that
+    is what you want when rotating credentials); bad lines are skipped and
+    reported, never fatal."""
+    await get_project(project_id, session)
+    pairs, skipped = parse_dotenv(body.text)
+
+    existing = {
+        s.key: s
+        for s in await session.scalars(
+            select(Secret).where(Secret.project_id == project_id)
+        )
+    }
+    added, updated = [], []
+    for key, value in pairs.items():
+        encrypted = crypto.encrypt(value)
+        if key in existing:
+            existing[key].value_encrypted = encrypted
+            updated.append(key)
+        else:
+            session.add(
+                Secret(project_id=project_id, key=key, value_encrypted=encrypted)
+            )
+            added.append(key)
+    await session.commit()
+    return {"added": sorted(added), "updated": sorted(updated), "skipped": skipped}
+
+
+@router.post("/export")
+async def export_secrets(
+    project_id: str,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Every secret for the project as .env text. Bulk reveal: same rules
+    as the single reveal, never cached."""
+    await get_project(project_id, session)
+    rows = await session.scalars(
+        select(Secret).where(Secret.project_id == project_id).order_by(Secret.key)
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "env": render_dotenv(
+            {s.key: crypto.decrypt(s.value_encrypted) for s in rows}
+        )
+    }

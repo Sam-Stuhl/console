@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from console.db.models import Project
 from console.db.session import get_session
 from console.schema.console_toml import validate_subdomain_format
+from console.starters import starter_files
 
 REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
 
@@ -90,3 +91,13 @@ async def delete_project(
     project = await get_project(project_id, session)
     await session.delete(project)
     await session.commit()
+
+
+@router.get("/{project_id}/starters")
+async def get_starters(
+    project_id: str, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Commented console.toml and Dockerfile templates, prefilled with this
+    project's name and subdomain, for bootstrapping the app repo."""
+    project = await get_project(project_id, session)
+    return starter_files(project)

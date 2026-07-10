@@ -14,6 +14,7 @@ from console.api.deployments import router as deployments_router
 from console.api.hooks import router as hooks_router
 from console.api.projects import router as projects_router
 from console.api.secrets import router as secrets_router
+from console.api.validate import router as validate_router
 from console.db.models import Deployment
 from console.db.session import SessionLocal
 from console.deploy import engine as deploy_engine
@@ -58,6 +59,7 @@ app.include_router(deployments_router)
 app.include_router(hooks_router)
 app.include_router(projects_router)
 app.include_router(secrets_router)
+app.include_router(validate_router)
 
 
 @app.exception_handler(KeyNotConfigured)
