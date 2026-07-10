@@ -1,0 +1,15 @@
+# Force LF on all text files. The setup machine is Windows; without this,
+# git would check out CRLF and files that run inside Linux containers (the
+# Dockerfile, compose, yaml, python, the built SPA) would break with
+# confusing "\r" errors.
+* text=auto eol=lf
+
+# Binary assets must never be normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary

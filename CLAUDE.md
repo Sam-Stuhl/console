@@ -88,9 +88,18 @@ until the first deployment exists, then disappear (Sam's call: setup
 content does not belong on a working project). The GitHub Actions
 workflow is done too (2026-07-10): a reusable workflow in this repo,
 called by a thin per-app deploy.yml that the checklist now hands out as
-a third starter file. Next: server setup on the PC (docker login to
-ghcr.io, run the console as a container on network web, the Cloudflare
-Access bypass for /hooks), then a real end-to-end deploy.
+a third starter file. The console is now packaged (2026-07-10): a
+multi-stage Dockerfile (Node builds the SPA, Python serves it, runs from
+the source tree with --app-dir src), a build.yml CI workflow publishing
+ghcr.io/sam-stuhl/console on push to main, compose.prod.yaml (traefik +
+console + cloudflared, tunnel-only, DB on a volume, key as a compose
+secret), and docs/server-setup.md. Image built and run-tested locally:
+SPA, API, migrations, mounted-key encryption, and DB persistence all
+verified. The setup machine is WINDOWS (this dev box is a Mac): the repo
+enforces LF via .gitattributes and the runbook uses containerized tooling
+so no Python/etc. is needed on Windows. Next: run docs/server-setup.md on
+the PC (create network web, generate key, Cloudflare tunnel + Access
+bypass + rate limit on /hooks, compose up), then a real end-to-end deploy.
 
 ## How Sam works
 

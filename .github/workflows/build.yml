@@ -1,0 +1,36 @@
+# Build the console's own image and push it to GHCR. The server pulls and
+# runs it (the console is never built on the server, and never deploys
+# itself). Runs on an amd64 runner, so the image matches the amd64 server
+# even though local dev is an arm64 Mac.
+
+name: build console image
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and push
+        run: |
+          IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}
+          SHORT_SHA=${GITHUB_SHA::7}
+          docker build -t "$IMAGE:$SHORT_SHA" -t "$IMAGE:latest" .
+          docker push "$IMAGE:$SHORT_SHA"
+          docker push "$IMAGE:latest"

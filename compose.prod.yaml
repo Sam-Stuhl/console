@@ -1,0 +1,77 @@
+# Production base infrastructure for the home server. Brings up the router
+# (Traefik), the console, and the Cloudflare tunnel. App containers are
+# started separately by the console's deploy engine and join the same
+# external `web` network, where Traefik discovers them by label.
+#
+# Runs on the Windows PC under Docker Desktop (WSL2 backend, Linux
+# containers). Nothing is published to the host: the only way in is the
+# Cloudflare tunnel, which reaches Traefik over the docker network.
+#
+# Before `up`:
+#   docker network create web
+#   put the Fernet key at ./secrets/console_key
+#   put TUNNEL_TOKEN=... in a .env file next to this file
+# See docs/server-setup.md for the full runbook.
+
+name: console
+
+services:
+  traefik:
+    # v3.6+ required: Docker engine 29 dropped API versions older than 1.40.
+    image: traefik:v3.6
+    container_name: traefik
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [web]
+    restart: unless-stopped
+
+  console:
+    image: ${CONSOLE_IMAGE:-ghcr.io/sam-stuhl/console:latest}
+    container_name: console
+    depends_on: [traefik]
+    volumes:
+      # The deploy engine drives Docker, so the console needs the socket
+      # read-write (Traefik only reads it).
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The SQLite DB (projects, secrets, deploy history) lives on a volume
+      # so it survives image updates and restarts.
+      - console-data:/data
+    secrets:
+      - console_key
+    environment:
+      CONSOLE_DOMAIN: samstuhl.com
+      CONSOLE_OIDC_AUDIENCE: console
+      CONSOLE_KEY_FILE: /run/secrets/console_key
+      CONSOLE_DB_PATH: /data/console.db
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.console.rule=Host(`console.samstuhl.com`)
+      - traefik.http.routers.console.entrypoints=web
+      - traefik.http.services.console.loadbalancer.server.port=8000
+    networks: [web]
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env (see docs/server-setup.md)}
+    depends_on: [traefik]
+    networks: [web]
+    restart: unless-stopped
+
+secrets:
+  console_key:
+    file: ./secrets/console_key
+
+volumes:
+  console-data:
+
+networks:
+  web:
+    external: true
