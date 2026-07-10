@@ -7,11 +7,17 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "docker",
+    "sqlalchemy[asyncio]",
+    "aiosqlite",
+    "alembic",
+    "cryptography",
+    "pydantic",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-asyncio",
     "httpx",
 ]
 
