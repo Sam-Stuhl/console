@@ -13,3 +13,4 @@ console.db
 .idea/
 .claude/
 CLAUDE.md
+secrets/

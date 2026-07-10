@@ -138,12 +138,15 @@ for the uvicorn "Application startup complete" line.
   Expect `200`.
 - **Through the tunnel:** open `https://console.samstuhl.com`. Cloudflare
   Access prompts for your login, then the console loads.
-- **The webhook path bypasses Access:**
+- **The webhook path bypasses Access:** the webhooks are POST-only, so send
+  a POST (a GET has no route and falls through to the SPA, returning `200`
+  index.html, which tells you nothing):
   ```
-  curl -s -o /dev/null -w "%{http_code}\n" https://console.samstuhl.com/hooks/build-started
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Content-Type: application/json" -d "{}" https://console.samstuhl.com/hooks/build-started
   ```
   Expect `401` (the console reached it and rejected it for no token). If you
-  get an Access **login page** instead, App A's path/Bypass is misconfigured.
+  get a `302` to an Access **login page** instead, App A's path/Bypass is
+  misconfigured (its policy action must be **Bypass**, include **Everyone**).
 
 ## 8. First real deploy
 
