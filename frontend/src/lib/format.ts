@@ -26,3 +26,12 @@ export function localTime(iso: string | null): string {
   if (!iso) return ''
   return new Date(iso).toLocaleString()
 }
+
+// API timestamps from SQLite are naive UTC (no Z suffix); treat them as UTC.
+export function utcDate(iso: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : iso + 'Z')
+}
+
+export function localDay(iso: string): string {
+  return utcDate(iso).toLocaleDateString()
+}
