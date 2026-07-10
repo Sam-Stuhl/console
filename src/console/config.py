@@ -14,6 +14,15 @@ HEALTH_TIMEOUT_CAP = 300
 # Host rule suffix: app.localhost in dev, app.samstuhl.com in prod
 DOMAIN = os.environ.get("CONSOLE_DOMAIN", "localhost")
 
+# Cloudflare Access automation. The console manages ONLY per-app Access
+# applications (the login gate), never DNS, the tunnel, or routing. The token
+# is scoped to "Access: Apps and Policies -> Edit" and nothing else, so a
+# console compromise cannot touch the rest of the account. Both are optional:
+# without them the access toggle 503s and everything else keeps working.
+CF_API_TOKEN_FILE = os.environ.get("CONSOLE_CF_API_TOKEN_FILE", "/run/secrets/cf_api_token")
+CF_ACCOUNT_ID = os.environ.get("CONSOLE_CF_ACCOUNT_ID", "")
+CF_API_BASE = os.environ.get("CONSOLE_CF_API_BASE", "https://api.cloudflare.com/client/v4")
+
 # GitHub Actions OIDC. The app repos' workflows must request their token
 # with audience=console; GitHub's default audience is the owner URL, which
 # we deliberately do not use so the value is stable and greppable.

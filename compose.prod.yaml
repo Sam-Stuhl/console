@@ -42,11 +42,20 @@ services:
       - console-data:/data
     secrets:
       - console_key
+      # Uncomment to let the console manage Cloudflare Access (the per-app
+      # login toggle). Needs ./secrets/cf_api_token (a token scoped to
+      # Access: Apps and Policies -> Edit) and CF_ACCOUNT_ID in .env.
+      # See docs/server-setup.md step 9.
+      # - cf_api_token
     environment:
       CONSOLE_DOMAIN: samstuhl.com
       CONSOLE_OIDC_AUDIENCE: console
       CONSOLE_KEY_FILE: /run/secrets/console_key
       CONSOLE_DB_PATH: /data/console.db
+      # Blank unless set in .env: the access toggle then 503s and the rest
+      # of the console is unaffected.
+      CONSOLE_CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
+      CONSOLE_CF_API_TOKEN_FILE: /run/secrets/cf_api_token
     labels:
       - traefik.enable=true
       - traefik.http.routers.console.rule=Host(`console.samstuhl.com`)
@@ -68,6 +77,8 @@ services:
 secrets:
   console_key:
     file: ./secrets/console_key
+  # cf_api_token:
+  #   file: ./secrets/cf_api_token
 
 volumes:
   console-data:

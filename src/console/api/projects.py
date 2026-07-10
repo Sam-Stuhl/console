@@ -6,12 +6,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from console import cloudflare, config
 from console.db.models import Project
 from console.db.session import get_session
 from console.schema.console_toml import validate_subdomain_format
 from console.starters import starter_files
 
 REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 router = APIRouter(prefix="/api/projects")
 
@@ -30,8 +32,28 @@ class ProjectOut(BaseModel):
     branch: str
     subdomain: str
     created_at: datetime
+    url: str  # where it serves, e.g. https://notion-sync.samstuhl.com
+    protected: bool  # Cloudflare Access login is in front of it
+    access_emails: list[str]
 
-    model_config = {"from_attributes": True}
+
+class AccessUpdate(BaseModel):
+    protected: bool
+    emails: list[str] = []
+
+
+def _out(project: Project) -> ProjectOut:
+    return ProjectOut(
+        id=project.id,
+        name=project.name,
+        repo=project.repo,
+        branch=project.branch,
+        subdomain=project.subdomain,
+        created_at=project.created_at,
+        url=f"https://{project.subdomain}.{config.DOMAIN}",
+        protected=project.protected,
+        access_emails=project.access_emails.split(",") if project.access_emails else [],
+    )
 
 
 async def get_project(project_id: str, session: AsyncSession) -> Project:
@@ -44,7 +66,7 @@ async def get_project(project_id: str, session: AsyncSession) -> Project:
 @router.get("")
 async def list_projects(session: AsyncSession = Depends(get_session)) -> list[ProjectOut]:
     result = await session.scalars(select(Project).order_by(Project.created_at))
-    return [ProjectOut.model_validate(p) for p in result]
+    return [_out(p) for p in result]
 
 
 @router.post("", status_code=201)
@@ -74,14 +96,51 @@ async def create_project(
     project = Project(**body.model_dump())
     session.add(project)
     await session.commit()
-    return ProjectOut.model_validate(project)
+    return _out(project)
 
 
 @router.get("/{project_id}")
 async def get_one(
     project_id: str, session: AsyncSession = Depends(get_session)
 ) -> ProjectOut:
-    return ProjectOut.model_validate(await get_project(project_id, session))
+    return _out(await get_project(project_id, session))
+
+
+@router.put("/{project_id}/access")
+async def set_access(
+    project_id: str,
+    body: AccessUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> ProjectOut:
+    """Turn the Cloudflare Access login on or off for this app's hostname.
+    Cloudflare is reconciled first; the row is only saved if that succeeds, so
+    the console's record never claims a gate that was not actually created."""
+    project = await get_project(project_id, session)
+
+    emails = [e.strip() for e in body.emails if e.strip()]
+    if body.protected:
+        if not emails:
+            raise HTTPException(
+                status_code=400,
+                detail="add at least one email, or the app would allow no one in",
+            )
+        for email in emails:
+            if not EMAIL_RE.match(email):
+                raise HTTPException(status_code=400, detail=f'"{email}" is not a valid email')
+
+    hostname = f"{project.subdomain}.{config.DOMAIN}"
+    try:
+        cf_app_id = await cloudflare.reconcile(
+            hostname, body.protected, emails, project.cf_app_id
+        )
+    except cloudflare.AccessApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    project.protected = body.protected
+    project.access_emails = ",".join(emails) if body.protected else None
+    project.cf_app_id = cf_app_id
+    await session.commit()
+    return _out(project)
 
 
 @router.delete("/{project_id}", status_code=204)
@@ -89,6 +148,9 @@ async def delete_project(
     project_id: str, session: AsyncSession = Depends(get_session)
 ) -> None:
     project = await get_project(project_id, session)
+    # Best effort: remove the Access app so deleting a project does not leave a
+    # dangling login gate. A Cloudflare failure must not block the delete.
+    await cloudflare.delete_if_present(project.cf_app_id)
     await session.delete(project)
     await session.commit()
 

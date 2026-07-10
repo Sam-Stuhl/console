@@ -5,6 +5,7 @@ import { localDay } from '../lib/format'
 import SecretsSection from '../components/SecretsSection'
 import DeploymentsSection from '../components/DeploymentsSection'
 import SetupSection from '../components/SetupSection'
+import AccessSection from '../components/AccessSection'
 import ConfirmButton from '../components/ConfirmButton'
 
 export default function ProjectDetail() {
@@ -26,6 +27,7 @@ export default function ProjectDetail() {
     enabled: Boolean(id),
   })
   const needsSetup = deployments !== undefined && deployments.length === 0
+  const isLive = deployments?.some((d) => d.status === 'live') ?? false
 
   const remove = useMutation({
     mutationFn: () => deleteProject(id!),
@@ -85,6 +87,12 @@ export default function ProjectDetail() {
         )}
       </div>
 
+      {project && (
+        <Section title="website">
+          <WebsiteTile url={project.url} name={project.name} live={isLive} />
+        </Section>
+      )}
+
       {needsSetup && id && (
         <Section title="next steps">
           <SetupSection projectId={id} branch={project?.branch ?? 'main'} />
@@ -100,6 +108,8 @@ export default function ProjectDetail() {
       )}
 
       <Section title="secrets">{id && <SecretsSection projectId={id} />}</Section>
+
+      <Section title="access">{id && <AccessSection projectId={id} />}</Section>
 
       <Section title="danger">
         <div className="flex items-center gap-4">
@@ -126,5 +136,44 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="font-mono text-xs text-muted">{title}</h2>
       {children}
     </section>
+  )
+}
+
+function WebsiteTile({ url, name, live }: { url: string; name: string; live: boolean }) {
+  const hostname = url.replace(/^https?:\/\//, '')
+  const initials =
+    name
+      .split(/[-_ ]/)
+      .map((word) => word[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase() || name.slice(0, 2).toUpperCase()
+
+  return (
+    <div className="flex max-w-2xl items-center gap-3 rounded-box border border-base-300 bg-base-100 px-3.5 py-3">
+      <span className="flex h-5 w-5 flex-none items-center justify-center rounded-sm bg-primary font-mono text-[10px] font-bold text-primary-content">
+        {initials}
+      </span>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="min-w-0 flex-1 truncate font-mono text-sm transition-colors duration-150 hover:text-primary"
+      >
+        {hostname}
+      </a>
+      <span className="inline-flex flex-none items-center gap-1.5 font-mono text-xs text-muted">
+        <span className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-success' : 'bg-base-300'}`} />
+        {live ? 'live' : 'not deployed'}
+      </span>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="flex-none rounded-field border border-base-300 px-2.5 py-1 font-mono text-xs text-muted transition-colors duration-150 hover:border-primary/50 hover:text-primary"
+      >
+        open &#8599;
+      </a>
+    </div>
   )
 }

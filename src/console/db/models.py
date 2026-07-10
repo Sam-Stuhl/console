@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, LargeBinary, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, LargeBinary, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -26,6 +26,12 @@ class Project(Base):
     branch: Mapped[str] = mapped_column(Text, default="main")
     subdomain: Mapped[str] = mapped_column(Text, unique=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Cloudflare Access gate for this app's hostname. protected mirrors whether
+    # an Access app exists; cf_app_id is the id we created (to update/delete
+    # it); access_emails is the comma-separated allow list.
+    protected: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    access_emails: Mapped[str | None] = mapped_column(Text)
+    cf_app_id: Mapped[str | None] = mapped_column(Text)
 
 
 class Deployment(Base):

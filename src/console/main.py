@@ -18,6 +18,7 @@ from console.api.validate import router as validate_router
 from console.db.models import Deployment
 from console.db.session import SessionLocal
 from console.deploy import engine as deploy_engine
+from console.cloudflare import AccessNotConfigured
 from console.deploy.reaper import reaper_loop
 from console.secrets.crypto import KeyNotConfigured
 
@@ -65,6 +66,12 @@ app.include_router(validate_router)
 @app.exception_handler(KeyNotConfigured)
 async def _key_not_configured(_request, exc: KeyNotConfigured):
     # Secret operations fail loudly; everything else keeps working.
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+@app.exception_handler(AccessNotConfigured)
+async def _access_not_configured(_request, exc: AccessNotConfigured):
+    # The access toggle 503s without a Cloudflare token; the rest is unaffected.
     return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 # In production the built SPA is served straight from FastAPI: one process,

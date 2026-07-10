@@ -41,6 +41,9 @@ export interface Project {
   branch: string
   subdomain: string
   created_at: string
+  url: string
+  protected: boolean
+  access_emails: string[]
 }
 
 export interface SecretMeta {
@@ -121,6 +124,12 @@ export const createProject = (body: {
 
 export const deleteProject = (id: string) =>
   request<void>(`/api/projects/${id}`, jsonInit('DELETE'))
+
+export const updateAccess = (id: string, isProtected: boolean, emails: string[]) =>
+  request<Project>(
+    `/api/projects/${id}/access`,
+    jsonInit('PUT', { protected: isProtected, emails }),
+  )
 
 export const fetchSecrets = (projectId: string) =>
   getJson<SecretMeta[]>(`/api/projects/${projectId}/secrets`)
