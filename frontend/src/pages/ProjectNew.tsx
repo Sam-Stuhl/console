@@ -41,7 +41,7 @@ export default function ProjectNew() {
           hint="display name, usually the repo name"
           value={form.name}
           onChange={set('name')}
-          placeholder="notion-sync"
+          placeholder="your-app"
           required
         />
         <Field
@@ -49,7 +49,7 @@ export default function ProjectNew() {
           hint="github repo under sam-stuhl"
           value={form.repo}
           onChange={set('repo')}
-          placeholder="sam-stuhl/notion-sync"
+          placeholder="Sam-Stuhl/your-repo"
           required
         />
         <Field
@@ -64,7 +64,7 @@ export default function ProjectNew() {
           hint={SUBDOMAIN_HINT}
           value={form.subdomain}
           onChange={set('subdomain')}
-          placeholder="notion-sync"
+          placeholder="your-app"
           required
         />
 
