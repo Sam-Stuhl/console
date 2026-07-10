@@ -61,9 +61,12 @@ docs/manual-deploy.md, read-only container views, projects + revealable
 secrets + console.toml validator, and deploys are real: OIDC webhook
 receiver (/hooks/build-started, /hooks/build-finished), deploy engine
 (pull, run alongside, health check, priority-labeled swap), reaper on a
-60s tick, all state in the deployments table. Next is Phase 4: deploy
-history UI + rollback. Then server setup on the PC and the GitHub
-Actions workflow for the app repos (OIDC token with audience=console,
+60s tick, all state in the deployments table. Phase 4 also complete:
+deploy history API + UI and rollback. A rollback clones a build that
+served traffic into a fresh queued deployment (append-only history, same
+engine, same invariant); targets are only rows that went live (Sam's
+call, 2026-07-09). Next: server setup on the PC and the GitHub Actions
+workflow for the app repos (OIDC token with audience=console,
 build-finished payload includes console.toml).
 
 ## How Sam works
