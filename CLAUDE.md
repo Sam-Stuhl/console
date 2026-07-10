@@ -40,10 +40,17 @@ answered a health check. A failed deploy changes nothing.
   console.toml text in its payload (no GitHub API fetch, no repo PAT).
 - The build workflow is reusable: real logic lives once in this repo at
   .github/workflows/app-deploy.yml (on: workflow_call); each app repo has
-  a thin caller (the deploy.yml starter). Two one-time setups: if the
-  console repo is private, allow sam-stuhl repos to call it (Actions ->
-  General -> Access); and Cloudflare Access must Bypass the /hooks/* path
-  since those endpoints self-authenticate via the OIDC token.
+  a thin caller (the deploy.yml starter). The repo is PUBLIC on GitHub
+  (github.com/Sam-Stuhl/console), so any app repo can call it with no
+  access setting. Remaining one-time setup, done during server setup:
+  Cloudflare Access must Bypass the /hooks/* path since those endpoints
+  self-authenticate via the OIDC token (a service token was rejected as
+  the shared secret the design forbids).
+- GitHub login is "Sam-Stuhl" (canonical case), not "sam-stuhl". GitHub
+  OIDC tokens carry that case in repository_owner/repository. All owner
+  and repo comparisons (oidc owner check, webhook repo match, project
+  lookup, GHCR image prefix) are case-insensitive so this cannot 403/404
+  real deploys. Do not reintroduce exact-case string equality on these.
 - Router-overlap fix: every engine-created router has an explicit Traefik
   priority label, strictly below the live one's (countdown from 4e9), so
   the old container keeps traffic until it is removed. Decided 2026-07-09;

@@ -67,17 +67,13 @@ WORKFLOW_TEMPLATE = """\
 # Deploy {name} through the console.
 #
 # This is a thin caller. The build+notify logic lives once in
-# sam-stuhl/console/.github/workflows/app-deploy.yml; update it there and
-# every app picks it up. Pin @main to a commit sha if you want stability
-# over always-latest.
+# sam-stuhl/console (public), .github/workflows/app-deploy.yml; update it
+# there and every app picks it up. Pin @main to a commit sha if you want
+# stability over always-latest.
 #
-# One-time account setup (once, not per app):
-#   1. Console repo (if private): Settings -> Actions -> General -> Access
-#      -> allow "Accessible from repositories owned by sam-stuhl", so this
-#      caller can reach the reusable workflow.
-#   2. Cloudflare Access: add a Bypass policy for the /hooks/* path on the
-#      console hostname. Those endpoints authenticate themselves with the
-#      GitHub OIDC token, so Access must let them through.
+# One-time setup: in Cloudflare Access, add a Bypass policy for the
+# /hooks/* path on the console hostname. Those endpoints authenticate
+# themselves with the GitHub OIDC token, so Access must let them through.
 
 name: deploy
 
