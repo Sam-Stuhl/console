@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from console.api.containers import router as containers_router
+from console.api.hooks import router as hooks_router
 from console.api.projects import router as projects_router
 from console.api.secrets import router as secrets_router
 from console.secrets.crypto import KeyNotConfigured
@@ -33,6 +34,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="console", lifespan=lifespan)
 app.include_router(containers_router)
+app.include_router(hooks_router)
 app.include_router(projects_router)
 app.include_router(secrets_router)
 
