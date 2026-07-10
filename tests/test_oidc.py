@@ -77,6 +77,12 @@ def test_wrong_signature_rejected():
         oidc.verify(make_token(key=OTHER_KEY))
 
 
+def test_canonical_owner_case_accepted():
+    # GitHub emits the owner in its real case; the check is case-insensitive
+    claims = oidc.verify(make_token(repository_owner="Sam-Stuhl"))
+    assert claims["repository_owner"] == "Sam-Stuhl"
+
+
 def test_wrong_owner_rejected():
     with pytest.raises(WrongOwner, match='"not-sam"'):
         oidc.verify(make_token(repository_owner="not-sam"))

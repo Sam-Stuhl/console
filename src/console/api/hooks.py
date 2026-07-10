@@ -12,7 +12,7 @@ import asyncio
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from console import oidc
@@ -62,13 +62,18 @@ async def resolve_project(
     """Returns (project, ignore_reason). A non-None reason means the event
     is for a branch the project does not track: answer 200 and do nothing,
     so workflows on side branches never go red."""
-    token_repo = claims.get("repository")
-    if repo != token_repo:
+    # GitHub owner/repo names are case-insensitive; the token and payload
+    # carry GitHub's canonical case (e.g. "Sam-Stuhl/..."), which need not
+    # match how the project was registered. Compare case-insensitively.
+    token_repo = claims.get("repository") or ""
+    if repo.lower() != token_repo.lower():
         raise HTTPException(
             status_code=403,
             detail=f'token was issued for "{token_repo}", payload says "{repo}"',
         )
-    project = await session.scalar(select(Project).where(Project.repo == repo))
+    project = await session.scalar(
+        select(Project).where(func.lower(Project.repo) == repo.lower())
+    )
     if project is None:
         raise HTTPException(status_code=404, detail=f'no project for repo "{repo}"')
     ref = claims.get("ref")
@@ -150,7 +155,7 @@ async def build_finished(
     parsed = None
     if body.conclusion != "success":
         failure = f"build failed (conclusion: {body.conclusion})"
-    elif not body.image or not body.image.startswith("ghcr.io/sam-stuhl/"):
+    elif not body.image or not body.image.lower().startswith("ghcr.io/sam-stuhl/"):
         failure = "image ref missing or not under ghcr.io/sam-stuhl/"
     elif not body.console_toml:
         failure = "build succeeded but no console.toml was sent"

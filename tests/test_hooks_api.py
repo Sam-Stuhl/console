@@ -121,6 +121,17 @@ async def test_unknown_project_is_404(client, claims):
     assert response.status_code == 404
 
 
+async def test_canonical_github_case_matches_lowercase_registration(client, claims, db):
+    # Project registered lowercase; GitHub sends canonical case in both the
+    # token claim and the payload. Owner and repo lookups must still match.
+    await project(client)  # registered as sam-stuhl/notion-sync
+    claims["repository"] = "Sam-Stuhl/notion-sync"
+    claims["repository_owner"] = "Sam-Stuhl"
+    response = await started(client, repo="Sam-Stuhl/notion-sync")
+    assert response.status_code == 201
+    assert response.json()["status"] == "building"
+
+
 async def test_other_branch_is_ignored(client, claims, db):
     await project(client)
     claims["ref"] = "refs/heads/feature"

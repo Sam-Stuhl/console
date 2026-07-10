@@ -46,8 +46,10 @@ def verify(token: str) -> dict:
     except jwt.PyJWTError as exc:
         raise OidcError(f"OIDC token rejected: {exc}") from exc
 
-    owner = claims.get("repository_owner")
-    if owner != config.OIDC_OWNER:
+    # GitHub emits the owner in its canonical case (e.g. "Sam-Stuhl"), but
+    # GitHub identifiers are case-insensitive, so compare that way.
+    owner = claims.get("repository_owner") or ""
+    if owner.lower() != config.OIDC_OWNER.lower():
         raise WrongOwner(
             f'OIDC token rejected: repository_owner is "{owner}", '
             f'not "{config.OIDC_OWNER}"'
