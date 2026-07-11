@@ -135,9 +135,9 @@ GHCR packages start **private**, so either:
 - **Make it public** (simplest, no auth for the console): GitHub -> your
   profile -> **Packages -> console -> Package settings -> Change visibility
   -> Public**. Do this once, or
-- **Log in on the server** with a `read:packages` PAT (see step 8; you need
-  this anyway before deploying private apps):
-  `docker login ghcr.io -u Sam-Stuhl` and paste the PAT.
+- **Keep it private** and log in on the server: `docker login ghcr.io -u
+  Sam-Stuhl` and paste a `read:packages` PAT. (This covers only the console's
+  own image; private *app* images use the console Settings token in step 9.)
 
 ## 6. Bring it up
 
@@ -174,42 +174,47 @@ for the uvicorn "Application startup complete" line.
 2. In the app repo, add the three files from the project's "next steps"
    checklist: `console.toml`, `Dockerfile`, `.github/workflows/deploy.yml`.
 3. Add the app's secrets in the console.
-4. **Private app images need pull auth on the server.** Create a GitHub PAT
-   with `read:packages`, then `docker login ghcr.io -u Sam-Stuhl` once. (Not
-   needed for public app images.)
+4. **Private app images need a pull token.** In the console's **Settings**
+   page, add a GitHub `read:packages` token once (see step 9). One token
+   covers every private app; public images need nothing.
 5. Push the app repo. Watch the deploy appear and go live in the console.
 
-## 9. (Optional) Let the console manage Access logins
+## 9. Console Settings: private-image pulls and Access logins
 
-The **access** toggle on a project page can put the Cloudflare login in front
-of that app for you, so you never open the dashboard. The console manages
-Access **applications only** (the login gate), never DNS, the tunnel, or
-routing.
+Two server-level credentials live in the console's **Settings** page (top nav),
+stored encrypted with the same key as your secrets. Add each once, in the
+browser: no files, no compose edits.
+
+**GitHub packages token** (pull private app images). A private repo's GHCR
+package is private, so the console needs a read token to pull it:
+
+1. GitHub -> **Settings -> Developer settings -> Personal access tokens ->
+   Tokens (classic) -> Generate new token**. Check only **`read:packages`**.
+2. Console -> **Settings -> github packages token** -> paste it -> save.
+
+One token covers every private app; public images need nothing. A deploy that
+fails with "unauthorized ... add a GitHub read:packages token in Settings" is
+telling you exactly this.
+
+**Cloudflare Access** (gate an app's hostname with a login). A project's
+**access** toggle then creates or removes a self-hosted Access app for
+`{subdomain}.samstuhl.com` with an Allow policy for the emails you list;
+turning it off deletes the app (the site goes public again). It manages Access
+apps only, never DNS, the tunnel, or routing.
 
 1. Cloudflare dashboard -> **My Profile -> API Tokens -> Create Token ->
    Custom token**. One permission: **Account -> Access: Apps and Policies ->
-   Edit**, scoped to your account. Create it and copy the token.
-2. Write the token to a file the console mounts (never in git):
-   ```
-   docker run --rm -v ${PWD}/secrets:/out busybox sh -c 'printf %s "PASTE_TOKEN_HERE" > /out/cf_api_token'
-   ```
-3. Find your **account id** (any domain -> Overview -> API on the right, or the
-   dashboard URL) and add it to `.env`:
-   ```
-   CF_ACCOUNT_ID=your-account-id
-   ```
-4. In `compose.prod.yaml`, uncomment the two `cf_api_token` lines (the console
-   service's `secrets:` entry and the top-level `secrets:` block), then:
-   ```
-   docker compose -f compose.prod.yaml up -d console
-   ```
+   Edit**, scoped to your account. Copy the token.
+2. Find your **account id** (any domain -> Overview -> API on the right, or the
+   dashboard URL).
+3. Console -> **Settings -> cloudflare access** -> paste the API token and the
+   account id -> save.
 
-Now a project's **access** toggle creates or removes a self-hosted Access app
-for `{subdomain}.samstuhl.com` with an Allow policy for the emails you list.
-Turning it off deletes the app (the site goes public again). Without this
-token the toggle returns 503 and everything else keeps working. The token is
-scoped to Access apps and policies alone, so even a console compromise cannot
-touch DNS, the tunnel, or the rest of your account.
+Without these the access toggle returns 503 and everything else keeps working.
+The token is scoped to Access apps and policies alone, so even a console
+compromise cannot touch DNS, the tunnel, or the rest of your account. (Mounting
+`secrets/cf_api_token` and setting `CF_ACCOUNT_ID` in `.env` still works as a
+fallback, but Settings is simpler.)
 
 ## Updating the console later
 
