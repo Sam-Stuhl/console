@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import type { DeploymentSummary } from '../api/client'
-import { fetchDeployments, rollbackDeployment } from '../api/client'
+import { fetchDeployments, redeployDeployment, rollbackDeployment } from '../api/client'
 import { since, took } from '../lib/format'
 import DeployBadge from './DeployBadge'
 
@@ -10,6 +10,12 @@ export function canRollback(d: DeploymentSummary): boolean {
   // Only builds that actually served traffic; rows superseded straight
   // out of the queue never started a deploy.
   return d.status === 'superseded' && d.deploy_started_at !== null
+}
+
+export function canRedeploy(d: DeploymentSummary): boolean {
+  // The latest build, once it has an image and is no longer in flight: retry a
+  // failed one, or re-run the live one to pick up changed secrets.
+  return d.image !== null && (d.status === 'live' || d.status === 'failed')
 }
 
 export function deployTook(d: DeploymentSummary): string {
@@ -45,6 +51,15 @@ export default function DeploymentsSection({
     onError: (err: Error) => setActionError(err.message),
   })
 
+  const redeploy = useMutation({
+    mutationFn: (deploymentId: string) => redeployDeployment(projectId, deploymentId),
+    onSuccess: () => {
+      setActionError(null)
+      queryClient.invalidateQueries({ queryKey: ['deployments', projectId] })
+    },
+    onError: (err: Error) => setActionError(err.message),
+  })
+
   if (isError) {
     return <p className="font-mono text-xs text-error">{(error as Error).message}</p>
   }
@@ -63,7 +78,7 @@ export default function DeploymentsSection({
     <div className="flex flex-col gap-3">
       <table className="w-full font-mono text-xs">
         <tbody>
-          {deployments.map((d) => (
+          {deployments.map((d, i) => (
             <tr key={d.id} className="border-b border-base-300/40 last:border-none">
               <td className="w-40 py-2 pr-4">
                 <DeployBadge status={d.status} substate={d.substate} />
@@ -86,8 +101,17 @@ export default function DeploymentsSection({
                 {deployTook(d)}
               </td>
               <td className="w-36 py-2 text-right whitespace-nowrap">
-                {canRollback(d) &&
-                  (confirming === d.id ? (
+                {i === 0 && canRedeploy(d) ? (
+                  <button
+                    type="button"
+                    disabled={redeploy.isPending}
+                    className="text-muted transition-colors duration-150 hover:text-base-content hover:underline"
+                    onClick={() => redeploy.mutate(d.id)}
+                  >
+                    {redeploy.isPending ? 'redeploying…' : 'redeploy'}
+                  </button>
+                ) : canRollback(d) ? (
+                  confirming === d.id ? (
                     <span className="inline-flex items-center gap-3">
                       <button
                         type="button"
@@ -115,7 +139,8 @@ export default function DeploymentsSection({
                     >
                       roll back
                     </button>
-                  ))}
+                  )
+                ) : null}
               </td>
             </tr>
           ))}

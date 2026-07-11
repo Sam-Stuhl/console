@@ -167,3 +167,56 @@ async def test_rollback_requires_served_traffic(client, db, enqueued):
         assert response.status_code == 400
         assert "served traffic" in response.json()["detail"]
     assert enqueued == []
+
+
+async def test_redeploy_clones_failed_into_queued(client, db, enqueued):
+    project_id = await seed_project(db)
+    failed_id = await seed_deployment(
+        db, project_id, "eeeeeee55555", status="failed", deploy_started_at=NOW
+    )
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments/{failed_id}/redeploy"
+    )
+    assert response.status_code == 202
+    new_id = response.json()["deployment_id"]
+    assert enqueued == [new_id]
+
+    async with db() as session:
+        new = await session.get(Deployment, new_id)
+        failed = await session.get(Deployment, failed_id)
+    assert new.status == "queued"
+    assert new.image == failed.image
+    assert new.config_snapshot == failed.config_snapshot
+    assert new.commit_message == "redeploy of eeeeeee"
+    assert failed.status == "failed"  # untouched
+
+
+async def test_redeploy_live_is_allowed(client, db, enqueued):
+    project_id = await seed_project(db)
+    live_id = await seed_deployment(db, project_id, "bbbbbbb22222")  # default status live
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments/{live_id}/redeploy"
+    )
+    assert response.status_code == 202
+
+
+async def test_redeploy_without_image_is_400(client, db, enqueued):
+    project_id = await seed_project(db)
+    no_image = await seed_deployment(
+        db, project_id, "fffffff66666", status="failed", image=None, config_snapshot=None
+    )
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments/{no_image}/redeploy"
+    )
+    assert response.status_code == 400
+    assert enqueued == []
+
+
+async def test_redeploy_in_progress_is_409(client, db, enqueued):
+    project_id = await seed_project(db)
+    building = await seed_deployment(db, project_id, "999999900000", status="building")
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments/{building}/redeploy"
+    )
+    assert response.status_code == 409
+    assert enqueued == []

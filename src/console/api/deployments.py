@@ -119,3 +119,38 @@ async def rollback(
     await session.commit()
     deploy_engine.enqueue(deployment.id)
     return {"deployment_id": deployment.id, "status": "queued"}
+
+
+@router.post("/{deployment_id}/redeploy", status_code=202)
+async def redeploy(
+    project_id: str,
+    deployment_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Re-run a build's own image + config as a fresh deployment. Unlike
+    rollback, this works for a deployment that failed after its image was
+    built (retry once the cause is fixed) or the live one (pick up changed
+    secrets/env). Env is reassembled from current secrets at run time."""
+    target = await _get_deployment(session, project_id, deployment_id)
+    if target.status in ("queued", "building", "deploying"):
+        raise HTTPException(status_code=409, detail="this deployment is still in progress")
+    if not target.image or not target.config_snapshot:
+        raise HTTPException(
+            status_code=400, detail="this build produced no image to redeploy"
+        )
+
+    deployment = Deployment(
+        project_id=project_id,
+        sha=target.sha,
+        commit_message=f"redeploy of {target.sha[:7]}",
+        image=target.image,
+        config_snapshot=target.config_snapshot,
+        run_url=target.run_url,
+        status="queued",
+    )
+    session.add(deployment)
+    await session.flush()
+    await deploy_engine.supersede_older_queued(session, project_id, deployment.id)
+    await session.commit()
+    deploy_engine.enqueue(deployment.id)
+    return {"deployment_id": deployment.id, "status": "queued"}

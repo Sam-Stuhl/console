@@ -216,3 +216,9 @@ export const rollbackDeployment = (projectId: string, deploymentId: string) =>
     `/api/projects/${projectId}/deployments/${deploymentId}/rollback`,
     jsonInit('POST'),
   )
+
+export const redeployDeployment = (projectId: string, deploymentId: string) =>
+  request<{ deployment_id: string; status: string }>(
+    `/api/projects/${projectId}/deployments/${deploymentId}/redeploy`,
+    jsonInit('POST'),
+  )
