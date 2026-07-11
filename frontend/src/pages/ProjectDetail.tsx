@@ -4,6 +4,7 @@ import { deleteProject, fetchDeployments, fetchProject } from '../api/client'
 import { localDay } from '../lib/format'
 import SecretsSection from '../components/SecretsSection'
 import DeploymentsSection from '../components/DeploymentsSection'
+import CommandSection from '../components/CommandSection'
 import SetupSection from '../components/SetupSection'
 import AccessSection from '../components/AccessSection'
 import ConfirmButton from '../components/ConfirmButton'
@@ -104,6 +105,12 @@ export default function ProjectDetail() {
           {id && (
             <DeploymentsSection projectId={id} branch={project?.branch ?? 'main'} />
           )}
+        </Section>
+      )}
+
+      {!needsSetup && (
+        <Section title="run command">
+          {id && <CommandSection projectId={id} isLive={isLive} />}
         </Section>
       )}
 

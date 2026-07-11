@@ -73,6 +73,21 @@ export interface DeploymentDetail extends DeploymentSummary {
   router_priority: number | null
 }
 
+export interface CommandRunSummary {
+  id: string
+  command: string
+  container_name: string | null
+  status: string
+  exit_code: number | null
+  failure_reason: string | null
+  created_at: string
+  finished_at: string | null
+}
+
+export interface CommandRunDetail extends CommandRunSummary {
+  output: string | null
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
   if (!res.ok) {
@@ -222,3 +237,15 @@ export const redeployDeployment = (projectId: string, deploymentId: string) =>
     `/api/projects/${projectId}/deployments/${deploymentId}/redeploy`,
     jsonInit('POST'),
   )
+
+export const runCommand = (projectId: string, command: string) =>
+  request<{ run_id: string; status: string }>(
+    `/api/projects/${projectId}/commands`,
+    jsonInit('POST', { command }),
+  )
+
+export const fetchCommandRuns = (projectId: string) =>
+  getJson<CommandRunSummary[]>(`/api/projects/${projectId}/commands`)
+
+export const fetchCommandRun = (projectId: string, runId: string) =>
+  getJson<CommandRunDetail>(`/api/projects/${projectId}/commands/${runId}`)
