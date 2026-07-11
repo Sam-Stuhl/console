@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
+from console.api.commands import router as commands_router
 from console.api.containers import router as containers_router
 from console.api.deployments import router as deployments_router
 from console.api.hooks import router as hooks_router
@@ -16,7 +17,7 @@ from console.api.projects import router as projects_router
 from console.api.secrets import router as secrets_router
 from console.api.settings import router as settings_router
 from console.api.validate import router as validate_router
-from console.db.models import Deployment
+from console.db.models import CommandRun, Deployment, utcnow
 from console.db.session import SessionLocal
 from console.deploy import engine as deploy_engine
 from console.cloudflare import AccessNotConfigured
@@ -48,6 +49,17 @@ async def lifespan(_app: FastAPI):
         for deployment_id in queued:
             deploy_engine.enqueue(deployment_id)
 
+        # An in-flight command exec cannot be resumed, so any run still marked
+        # running is orphaned by the restart. Fail it rather than leave it hung.
+        orphans = await session.scalars(
+            select(CommandRun).where(CommandRun.status == "running")
+        )
+        for cmd_run in orphans:
+            cmd_run.status = "failed"
+            cmd_run.failure_reason = "interrupted by a console restart"
+            cmd_run.finished_at = utcnow()
+        await session.commit()
+
     reaper = asyncio.create_task(reaper_loop())
     yield
     reaper.cancel()
@@ -56,6 +68,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="console", lifespan=lifespan)
+app.include_router(commands_router)
 app.include_router(containers_router)
 app.include_router(deployments_router)
 app.include_router(hooks_router)

@@ -36,6 +36,10 @@ OIDC_OWNER = "sam-stuhl"
 PRIORITY_START = 4_000_000_000
 HEALTH_POLL_INTERVAL = 2
 
+# One-off commands exec'd in an app's live container
+COMMAND_TIMEOUT = 30 * 60  # wall-clock cap for a single run, seconds
+COMMAND_OUTPUT_MAX = 256 * 1024  # stored-output cap per run, bytes
+
 # Reaper timeouts for stuck deployments, in seconds
 REAPER_INTERVAL = 60
 BUILD_TIMEOUT = 30 * 60

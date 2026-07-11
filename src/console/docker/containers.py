@@ -93,6 +93,17 @@ async def list_containers() -> list[dict]:
     return [shape_container(c.attrs) for c in containers]
 
 
+async def find_project_container(project_id: str):
+    """The running container the deploy engine created for this project, or
+    None. Same label query as the engine's live-container lookup; the single
+    container is what one-off commands exec into and app controls act on."""
+    live = await run(
+        get_client().containers.list,
+        filters={"label": f"console.project={project_id}"},
+    )
+    return live[0] if live else None
+
+
 async def get_container(container_id: str) -> dict:
     container = await run(get_client().containers.get, container_id)
     return shape_detail(container.attrs)

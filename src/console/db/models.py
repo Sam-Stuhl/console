@@ -58,6 +58,30 @@ class Deployment(Base):
     finished_at: Mapped[datetime | None]
 
 
+class CommandRun(Base):
+    """A one-off command exec'd in a project's live container: app maintenance
+    and setup that used to need a hand-rolled `docker exec` (a Robinhood device
+    approval, simplefin_setup, a migration, an ad-hoc script). Output is
+    appended as it streams so the polling UI sees progress, the same shape as a
+    Deployment's log. Never touches a container's lifecycle, so the deploy
+    safety invariant is untouched."""
+
+    __tablename__ = "command_runs"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE")
+    )
+    command: Mapped[str] = mapped_column(Text)
+    container_name: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)  # running|succeeded|failed
+    exit_code: Mapped[int | None]
+    output: Mapped[str | None] = mapped_column(Text)
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    finished_at: Mapped[datetime | None]
+
+
 class Setting(Base):
     """Server-level config the console manages itself: the GHCR read token for
     pulling private images, and the Cloudflare Access credentials. Values are
