@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
 import ContainerList from './pages/ContainerList'
 import ContainerDetail from './pages/ContainerDetail'
@@ -7,6 +8,9 @@ import ProjectDetail from './pages/ProjectDetail'
 import DeploymentDetail from './pages/DeploymentDetail'
 import ValidateToml from './pages/ValidateToml'
 import Settings from './pages/Settings'
+
+// xterm is heavy and only this route needs it; keep it out of the main bundle.
+const ProjectTerminal = lazy(() => import('./pages/ProjectTerminal'))
 
 function navClass({ isActive }: { isActive: boolean }) {
   return `font-mono text-sm transition-colors duration-150 ${
@@ -44,6 +48,16 @@ function App() {
           <Route path="/" element={<ProjectList />} />
           <Route path="/projects/new" element={<ProjectNew />} />
           <Route path="/projects/:id" element={<ProjectDetail />} />
+          <Route
+            path="/projects/:id/terminal"
+            element={
+              <Suspense
+                fallback={<div className="skeleton h-[70vh] w-full rounded-box" />}
+              >
+                <ProjectTerminal />
+              </Suspense>
+            }
+          />
           <Route
             path="/projects/:id/deployments/:deploymentId"
             element={<DeploymentDetail />}

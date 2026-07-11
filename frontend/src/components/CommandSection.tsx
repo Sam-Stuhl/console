@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   fetchCommandRun,
@@ -68,7 +69,7 @@ export default function CommandSection({
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit()
           }}
-          placeholder="python -m app.simplefin_setup"
+          placeholder="a shell command, e.g. ls -la"
           spellCheck={false}
           className="flex-1 rounded-field border border-base-300 bg-base-100 px-3 py-1.5 font-mono text-xs outline-none focus:border-primary/50"
         />
@@ -81,6 +82,15 @@ export default function CommandSection({
           {run.isPending ? 'running…' : 'run'}
         </button>
       </div>
+      <p className="font-mono text-xs text-faint">
+        one-shot and non-interactive. to answer a prompt or poke around, {' '}
+        <Link
+          to={`/projects/${projectId}/terminal`}
+          className="text-accent hover:underline"
+        >
+          open a terminal &#8599;
+        </Link>
+      </p>
       {actionError && <p className="font-mono text-xs text-error">{actionError}</p>}
 
       {selectedId && <RunOutput projectId={projectId} runId={selectedId} />}

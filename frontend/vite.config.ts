@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      '/api': 'http://localhost:8000',
+      // ws:true so the container terminal's websocket proxies through too
+      '/api': { target: 'http://localhost:8000', ws: true },
     },
   },
 })
