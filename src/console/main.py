@@ -16,6 +16,7 @@ from console.api.hooks import router as hooks_router
 from console.api.projects import router as projects_router
 from console.api.secrets import router as secrets_router
 from console.api.settings import router as settings_router
+from console.api.terminal import router as terminal_router
 from console.api.validate import router as validate_router
 from console.db.models import CommandRun, Deployment, utcnow
 from console.db.session import SessionLocal
@@ -75,6 +76,7 @@ app.include_router(hooks_router)
 app.include_router(projects_router)
 app.include_router(secrets_router)
 app.include_router(settings_router)
+app.include_router(terminal_router)
 app.include_router(validate_router)
 
 
