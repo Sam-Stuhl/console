@@ -58,6 +58,18 @@ class Deployment(Base):
     finished_at: Mapped[datetime | None]
 
 
+class Setting(Base):
+    """Server-level config the console manages itself: the GHCR read token for
+    pulling private images, and the Cloudflare Access credentials. Values are
+    Fernet-encrypted with the same key as project secrets."""
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value_encrypted: Mapped[bytes] = mapped_column(LargeBinary)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
 class Secret(Base):
     __tablename__ = "secrets"
     __table_args__ = (UniqueConstraint("project_id", "key"),)

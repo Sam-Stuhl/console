@@ -18,7 +18,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import config
+from console import config, settings_store
 from console.db.models import Deployment, Project, Secret, utcnow
 from console.db.session import SessionLocal
 from console.deploy import plan
@@ -101,11 +101,19 @@ async def _deploy(
     deployment.router_priority = priority
     await session.commit()
 
-    # Runbook step 1: pull
+    # Runbook step 1: pull. Private GHCR images need the read token from
+    # Settings; public images pull with auth=None.
     await _log(session, deployment, f"pulling {deployment.image}")
+    ghcr_token = await settings_store.get(session, settings_store.GHCR_TOKEN)
+    auth = {"username": config.OIDC_OWNER, "password": ghcr_token} if ghcr_token else None
     try:
-        await run(client.images.pull, deployment.image)
+        await run(client.images.pull, deployment.image, auth_config=auth)
     except docker.errors.DockerException as exc:
+        if "unauthorized" in str(exc).lower() and not ghcr_token:
+            raise DeployFailed(
+                "image pull failed: unauthorized. This looks like a private "
+                "image. Add a GitHub read:packages token in Settings, then redeploy."
+            )
         raise DeployFailed(f"image pull failed: {exc}")
 
     # Runbook step 2: run alongside; the old container keeps serving

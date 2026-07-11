@@ -6,6 +6,7 @@ import ProjectNew from './pages/ProjectNew'
 import ProjectDetail from './pages/ProjectDetail'
 import DeploymentDetail from './pages/DeploymentDetail'
 import ValidateToml from './pages/ValidateToml'
+import Settings from './pages/Settings'
 
 function navClass({ isActive }: { isActive: boolean }) {
   return `font-mono text-sm transition-colors duration-150 ${
@@ -32,6 +33,9 @@ function App() {
             <NavLink to="/validate" end className={navClass}>
               toml check
             </NavLink>
+            <NavLink to="/settings" end className={navClass}>
+              settings
+            </NavLink>
           </nav>
         </div>
       </header>
@@ -45,6 +49,7 @@ function App() {
             element={<DeploymentDetail />}
           />
           <Route path="/validate" element={<ValidateToml />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/containers" element={<ContainerList />} />
           <Route path="/containers/:id" element={<ContainerDetail />} />
         </Routes>

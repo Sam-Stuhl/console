@@ -82,10 +82,10 @@ class FakeImages:
     def __init__(self, fake):
         self.fake = fake
 
-    def pull(self, image):
+    def pull(self, image, auth_config=None):
         if self.fake.pull_error:
             raise docker.errors.APIError(self.fake.pull_error)
-        self.fake.events.append(("pull", image))
+        self.fake.events.append(("pull", image, auth_config))
 
 
 class FakeDocker:

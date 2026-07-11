@@ -1,0 +1,44 @@
+"""Server-level settings the console manages via its own UI: the GHCR read
+token for pulling private images, and the Cloudflare Access credentials. Stored
+in the settings table, Fernet-encrypted with the same key as project secrets, so
+none of it lives in git or a mounted file once set here."""
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from console.db.models import Setting
+from console.secrets import crypto
+
+GHCR_TOKEN = "ghcr_token"
+CF_API_TOKEN = "cf_api_token"
+CF_ACCOUNT_ID = "cf_account_id"
+
+# Everything the settings UI knows how to manage. The account id is not really
+# secret, but it rides the same encrypted store for uniformity.
+KNOWN = frozenset({GHCR_TOKEN, CF_API_TOKEN, CF_ACCOUNT_ID})
+
+
+async def get(session: AsyncSession, key: str) -> str | None:
+    row = await session.get(Setting, key)
+    return crypto.decrypt(row.value_encrypted) if row is not None else None
+
+
+async def set_value(session: AsyncSession, key: str, value: str) -> None:
+    row = await session.get(Setting, key)
+    if row is None:
+        session.add(Setting(key=key, value_encrypted=crypto.encrypt(value)))
+    else:
+        row.value_encrypted = crypto.encrypt(value)
+
+
+async def delete(session: AsyncSession, key: str) -> bool:
+    row = await session.get(Setting, key)
+    if row is None:
+        return False
+    await session.delete(row)
+    return True
+
+
+async def keys_set(session: AsyncSession) -> set[str]:
+    rows = await session.scalars(select(Setting.key))
+    return set(rows)

@@ -131,6 +131,18 @@ export const updateAccess = (id: string, isProtected: boolean, emails: string[])
     jsonInit('PUT', { protected: isProtected, emails }),
   )
 
+export interface SettingsStatus {
+  set: string[]
+}
+
+export const fetchSettings = () => getJson<SettingsStatus>('/api/settings')
+
+export const putSetting = (key: string, value: string) =>
+  request<void>(`/api/settings/${key}`, jsonInit('PUT', { value }))
+
+export const deleteSetting = (key: string) =>
+  request<void>(`/api/settings/${key}`, jsonInit('DELETE'))
+
 export const fetchSecrets = (projectId: string) =>
   getJson<SecretMeta[]>(`/api/projects/${projectId}/secrets`)
 

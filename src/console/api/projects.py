@@ -129,8 +129,9 @@ async def set_access(
                 raise HTTPException(status_code=400, detail=f'"{email}" is not a valid email')
 
     hostname = f"{project.subdomain}.{config.DOMAIN}"
+    token, account_id = await cloudflare.resolve_credentials(session)  # 503 if unconfigured
     try:
-        cf_app_id = await cloudflare.reconcile(
+        cf_app_id = await cloudflare.Access(token, account_id).reconcile(
             hostname, body.protected, emails, project.cf_app_id
         )
     except cloudflare.AccessApiError as exc:
@@ -149,8 +150,14 @@ async def delete_project(
 ) -> None:
     project = await get_project(project_id, session)
     # Best effort: remove the Access app so deleting a project does not leave a
-    # dangling login gate. A Cloudflare failure must not block the delete.
-    await cloudflare.delete_if_present(project.cf_app_id)
+    # dangling login gate. A Cloudflare hiccup or unconfigured creds must not
+    # block the delete.
+    if project.cf_app_id:
+        try:
+            token, account_id = await cloudflare.resolve_credentials(session)
+            await cloudflare.Access(token, account_id).delete_app(project.cf_app_id)
+        except Exception:
+            pass
     await session.delete(project)
     await session.commit()
 
