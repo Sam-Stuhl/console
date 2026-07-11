@@ -2,12 +2,15 @@
 
 A single-tenant, self-hosted PaaS control plane. It is the web console I use to deploy my own projects to a home server: a FastAPI + React app that registers projects, receives build webhooks, pulls images, runs zero-downtime deploys behind Traefik, and keeps a deploy history I can roll back from. Think of a small, personal Render or Railway that I own end to end.
 
+The goal is one place to run everything about a project that isn't writing code: deploy, roll back, read logs, manage secrets and access, run a one-off command, or open a shell into a running app. Centralize the setup so hosting a new site is a registration, not a runbook.
+
 ## What it does
 
 - **Projects**: register an app, give it a `console.toml`, and manage it from one place.
 - **Deploys**: GitHub Actions builds an image and pushes it to GHCR; a webhook tells the console, which pulls the image and runs it. The new container starts alongside the old one and only takes traffic after it passes a health check.
 - **Zero-downtime swaps**: routing is handled by Traefik priority labels, so the live container keeps serving until its replacement is healthy. A failed deploy changes nothing.
 - **History, rollback, and redeploy**: every deploy is an append-only row. Roll back to any build that once served traffic, or redeploy the latest — retry a failed deploy after fixing the cause, or re-run the live one to pick up changed secrets — all through the same safe pipeline.
+- **Run commands and shell in**: run a one-off maintenance command in an app's live container (a migration, a backfill, a one-time login) and watch its output, or open a full interactive terminal into the container from the browser. Both exec into the running container, so a token written by a login lands where the live app can read it. App repos need no setup for this.
 - **Secrets**: per-project secrets encrypted at rest with Fernet, with paste-or-drop `.env` import and copy-as-`.env` export.
 - **Access**: a per-project toggle puts a Cloudflare Access login in front of an app; the console creates or removes the Access application through the Cloudflare API, gated to the emails you list.
 - **Settings**: server-level credentials the console manages for you — a GitHub `read:packages` token so it can pull private images, and the Cloudflare Access API token + account id — stored encrypted and set from the UI, with step-by-step instructions on the page.
@@ -37,7 +40,7 @@ Webhooks authenticate with GitHub OIDC (no shared secrets); the build workflow r
 
 ## Scope
 
-This is deliberately single-tenant and small. Some things are non-goals on purpose: no in-app auth (a Cloudflare Access edge handles it), no building on the server (GitHub Actions builds and pushes to GHCR; the server only pulls and runs), no log streaming (polling only), and no blue/green or multi-node orchestration.
+This is deliberately single-tenant and small. Some things are non-goals on purpose: no in-app auth (a Cloudflare Access edge handles it), no building on the server (GitHub Actions builds and pushes to GHCR; the server only pulls and runs), no log streaming (polling only, the one exception being the interactive terminal, which needs a websocket a poll cannot replace), and no blue/green or multi-node orchestration.
 
 ## Dev setup
 
