@@ -10,6 +10,11 @@ import {
   runBackupNow,
 } from '../api/client'
 import { formatBytes, since } from '../lib/format'
+import {
+  CollapsibleSection,
+  SectionsProvider,
+  TableOfContents,
+} from '../components/Sections'
 
 export default function Settings() {
   const { data, isError, error } = useQuery({
@@ -46,16 +51,18 @@ export default function Settings() {
   }
 
   return (
-    <div className="flex max-w-2xl flex-col gap-8">
-      <div className="flex flex-col gap-2">
-        <h1 className="font-mono text-xl font-semibold">settings</h1>
-        <p className="font-mono text-xs text-faint">
-          Credentials the console uses on your behalf. Stored encrypted, shown
-          only as configured / not set, and never written to git.
-        </p>
-      </div>
+    <SectionsProvider>
+      <div className="flex items-start gap-10">
+        <div className="flex min-w-0 max-w-2xl flex-1 flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <h1 className="font-mono text-xl font-semibold">settings</h1>
+            <p className="font-mono text-xs text-faint">
+              Credentials the console uses on your behalf. Stored encrypted, shown
+              only as configured / not set, and never written to git.
+            </p>
+          </div>
 
-      <Section title="github packages token">
+          <CollapsibleSection id="ghcr" title="github packages token">
         <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
           The console pulls each app&apos;s image from GHCR. A public repo&apos;s
           image is public; a <UI>private</UI> repo&apos;s image is private and
@@ -108,9 +115,9 @@ export default function Settings() {
           placeholder="ghp_… (read:packages)"
           isSet={isSet('ghcr_token')}
         />
-      </Section>
+      </CollapsibleSection>
 
-      <Section title="cloudflare access">
+      <CollapsibleSection id="cloudflare" title="cloudflare access">
         <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
           Lets a project&apos;s <UI>access</UI> toggle put the Cloudflare login
           in front of an app. Needs an API token plus your account id.
@@ -169,9 +176,9 @@ export default function Settings() {
           isSet={isSet('cf_account_id')}
           secret={false}
         />
-      </Section>
+      </CollapsibleSection>
 
-      <Section title="backups">
+      <CollapsibleSection id="backups" title="backups">
         <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
           A nightly encrypted copy of the console&apos;s own state (its database
           and the <UI>Fernet key</UI>) pushed to a private GitHub repo. Lose the
@@ -229,8 +236,17 @@ export default function Settings() {
         />
 
         <BackupPanel />
-      </Section>
-    </div>
+          </CollapsibleSection>
+        </div>
+
+        <aside className="sticky top-20 hidden w-44 shrink-0 lg:block">
+          <p className="mb-2 font-mono text-[11px] uppercase tracking-wide text-faint">
+            on this page
+          </p>
+          <TableOfContents />
+        </aside>
+      </div>
+    </SectionsProvider>
   )
 }
 
@@ -319,15 +335,6 @@ function Dot({ on, label }: { on: boolean; label: string }) {
       <span className={`h-1.5 w-1.5 rounded-full ${on ? 'bg-success' : 'bg-base-300'}`} />
       <span className="text-faint">{label}</span>
     </span>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="flex flex-col gap-3 border-t border-base-300 pt-4">
-      <h2 className="font-mono text-xs text-muted">{title}</h2>
-      {children}
-    </section>
   )
 }
 
