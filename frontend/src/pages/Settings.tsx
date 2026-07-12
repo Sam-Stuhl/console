@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   deleteSetting,
@@ -254,13 +254,20 @@ function BackupPanel() {
   const queryClient = useQueryClient()
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const { data } = useQuery({
+  const { data, refetch } = useQuery({
     queryKey: ['backups'],
     queryFn: fetchBackups,
     // Poll while a backup is in flight, otherwise sit still.
     refetchInterval: (query) =>
       query.state.data?.runs.some((r) => r.status === 'running') ? 2000 : false,
   })
+
+  // The destination status is derived from settings on the server, so refetch
+  // it whenever the settings change (e.g. the repo/token were just saved).
+  const settings = useQuery({ queryKey: ['settings'], queryFn: fetchSettings })
+  useEffect(() => {
+    refetch()
+  }, [settings.data, refetch])
 
   const backupNow = useMutation({
     mutationFn: runBackupNow,
