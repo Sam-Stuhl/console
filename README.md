@@ -13,7 +13,8 @@ The goal is one place to run everything about a project that isn't writing code:
 - **Run commands and shell in**: run a one-off maintenance command in an app's live container (a migration, a backfill, a one-time login) and watch its output, or open a full interactive terminal into the container from the browser. Both exec into the running container, so a token written by a login lands where the live app can read it. App repos need no setup for this.
 - **Secrets**: per-project secrets encrypted at rest with Fernet, with paste-or-drop `.env` import and copy-as-`.env` export.
 - **Access**: a per-project toggle puts a Cloudflare Access login in front of an app; the console creates or removes the Access application through the Cloudflare API, gated to the emails you list.
-- **Settings**: server-level credentials the console manages for you — a GitHub `read:packages` token so it can pull private images, and the Cloudflare Access API token + account id — stored encrypted and set from the UI, with step-by-step instructions on the page.
+- **Backups**: a nightly encrypted copy of the console's own state (its SQLite database plus the Fernet key that everything is encrypted with) pushed off-box to a private GitHub repo. The bundle is encrypted with a passphrase kept outside the box, so the destination alone reveals nothing, and `python -m console.backup.restore` recovers it. Losing the key means losing every stored secret, so this is the backup that matters.
+- **Settings**: server-level credentials the console manages for you — a GitHub `read:packages` token so it can pull private images, the Cloudflare Access API token + account id, and the backup destination — stored encrypted and set from the UI, with step-by-step instructions on the page.
 - **Validation and starters**: a `console.toml` checker runs the real deploy validator, and each project gets prefilled starter `console.toml`, `Dockerfile`, and `deploy.yml` files as a setup checklist that disappears once the first deploy lands.
 
 ## How a deploy works
@@ -83,7 +84,7 @@ cd frontend && npm run build
 
 ## Production
 
-`compose.prod.yaml` runs the stack tunnel-only: Traefik, the console image from GHCR, and cloudflared, with the console's SQLite database on a host bind-mount and the Fernet key mounted as a compose secret. The console updates itself: a self-hosted runner on the box pulls the new image and recreates the container on a push to `main` — out-of-band from its own deploy engine, so a bad build can never leave it unable to recover. The full server walkthrough is in [`docs/server-setup.md`](docs/server-setup.md); the hand-run deploy cycle that the engine automates is in [`docs/manual-deploy.md`](docs/manual-deploy.md).
+`compose.prod.yaml` runs the stack tunnel-only: Traefik, the console image from GHCR, and cloudflared, with the console's SQLite database on a host bind-mount and the Fernet key mounted as a compose secret. To enable off-box backups, mount a second secret with the backup passphrase (`CONSOLE_BACKUP_PASSPHRASE_FILE`) and set the destination repo + token in Settings. The console updates itself: a self-hosted runner on the box pulls the new image and recreates the container on a push to `main` — out-of-band from its own deploy engine, so a bad build can never leave it unable to recover. The full server walkthrough is in [`docs/server-setup.md`](docs/server-setup.md); the hand-run deploy cycle that the engine automates is in [`docs/manual-deploy.md`](docs/manual-deploy.md).
 
 ## Tests
 
