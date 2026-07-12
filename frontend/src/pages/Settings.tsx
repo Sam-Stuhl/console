@@ -2,11 +2,14 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   deleteSetting,
+  fetchBackups,
   fetchDeployments,
   fetchProjects,
   fetchSettings,
   putSetting,
+  runBackupNow,
 } from '../api/client'
+import { formatBytes, since } from '../lib/format'
 
 export default function Settings() {
   const { data, isError, error } = useQuery({
@@ -167,7 +170,155 @@ export default function Settings() {
           secret={false}
         />
       </Section>
+
+      <Section title="backups">
+        <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
+          A nightly encrypted copy of the console&apos;s own state (its database
+          and the <UI>Fernet key</UI>) pushed to a private GitHub repo. Lose the
+          key and every stored secret is gone, so this is the one backup that
+          matters. The bundle is encrypted with a <UI>passphrase</UI> you keep
+          offline, so the repo alone reveals nothing.
+        </p>
+
+        <Steps
+          title="the passphrase (server-side, once)"
+          items={[
+            <>
+              Pick a strong passphrase and store it in your password manager. If
+              you lose it, backups cannot be restored.
+            </>,
+            <>
+              Put it in the file the console reads (
+              <Code>CONSOLE_BACKUP_PASSPHRASE_FILE</Code>, a mounted secret in
+              production), then restart the console.
+            </>,
+          ]}
+        />
+
+        <Steps
+          title="the destination repo"
+          items={[
+            <>
+              Create a <UI>private</UI> GitHub repo just for backups, e.g.{' '}
+              <Code>Sam-Stuhl/console-backups</Code>.
+            </>,
+            <>
+              Make a token that can write to it: a fine-grained PAT scoped to
+              that one repo with <UI>Contents: Read and write</UI> (a classic
+              token with <UI>repo</UI> also works).
+            </>,
+            <>Paste the repo and token below.</>,
+          ]}
+          link={{
+            href: 'https://github.com/settings/tokens?type=beta',
+            label: 'open fine-grained tokens',
+          }}
+        />
+        <SettingField
+          keyName="backup_github_repo"
+          label="repo"
+          placeholder="owner/name"
+          isSet={isSet('backup_github_repo')}
+          secret={false}
+        />
+        <SettingField
+          keyName="backup_github_token"
+          label="token"
+          placeholder="GitHub token (contents: write)"
+          isSet={isSet('backup_github_token')}
+        />
+
+        <BackupPanel />
+      </Section>
     </div>
+  )
+}
+
+function BackupPanel() {
+  const queryClient = useQueryClient()
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const { data } = useQuery({
+    queryKey: ['backups'],
+    queryFn: fetchBackups,
+    // Poll while a backup is in flight, otherwise sit still.
+    refetchInterval: (query) =>
+      query.state.data?.runs.some((r) => r.status === 'running') ? 2000 : false,
+  })
+
+  const backupNow = useMutation({
+    mutationFn: runBackupNow,
+    onSuccess: () => {
+      setActionError(null)
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
+    },
+    onError: (err: Error) => setActionError(err.message),
+  })
+
+  return (
+    <div className="flex flex-col gap-3 pt-1">
+      <div className="flex flex-wrap items-center gap-4 font-mono text-xs">
+        <Dot on={data?.passphrase ?? false} label="passphrase" />
+        <Dot on={data?.destination ?? false} label="destination" />
+        <button
+          type="button"
+          disabled={!data?.ready || backupNow.isPending}
+          onClick={() => backupNow.mutate()}
+          className="rounded-field border border-base-300 px-3 py-1 text-muted transition-colors duration-150 hover:border-primary/50 hover:text-primary disabled:opacity-40"
+        >
+          {backupNow.isPending ? 'starting…' : 'back up now'}
+        </button>
+      </div>
+      {actionError && <p className="font-mono text-xs text-error">{actionError}</p>}
+      {data && data.runs.length > 0 ? (
+        <table className="w-full font-mono text-xs">
+          <tbody>
+            {data.runs.map((r) => (
+              <tr key={r.id} className="border-b border-base-300/40 last:border-none">
+                <td className="w-32 py-2 pr-4">
+                  <span className="inline-flex items-center gap-2">
+                    <span
+                      className={`size-1.5 rounded-full ${
+                        r.status === 'succeeded'
+                          ? 'bg-success'
+                          : r.status === 'failed'
+                            ? 'bg-error'
+                            : 'bg-warning motion-safe:animate-pulse'
+                      }`}
+                    />
+                    <span className={r.status === 'failed' ? 'text-error' : 'text-muted'}>
+                      {r.status}
+                    </span>
+                  </span>
+                </td>
+                <td className="w-16 py-2 pr-4 text-muted">{r.trigger}</td>
+                <td className="w-20 py-2 pr-4 text-muted">
+                  {r.size_bytes !== null ? formatBytes(r.size_bytes) : ''}
+                </td>
+                <td className="py-2 pr-4 text-muted" title={r.failure_reason ?? ''}>
+                  {r.status === 'failed' ? (
+                    <span className="text-error/80">{r.failure_reason}</span>
+                  ) : (
+                    since(r.created_at)
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="font-mono text-xs text-faint">no backups yet.</p>
+      )}
+    </div>
+  )
+}
+
+function Dot({ on, label }: { on: boolean; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`h-1.5 w-1.5 rounded-full ${on ? 'bg-success' : 'bg-base-300'}`} />
+      <span className="text-faint">{label}</span>
+    </span>
   )
 }
 

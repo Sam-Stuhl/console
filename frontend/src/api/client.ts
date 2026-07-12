@@ -73,6 +73,24 @@ export interface DeploymentDetail extends DeploymentSummary {
   router_priority: number | null
 }
 
+export interface BackupRun {
+  id: string
+  trigger: string
+  status: string
+  location: string | null
+  size_bytes: number | null
+  failure_reason: string | null
+  created_at: string
+  finished_at: string | null
+}
+
+export interface BackupStatus {
+  passphrase: boolean
+  destination: boolean
+  ready: boolean
+  runs: BackupRun[]
+}
+
 export interface CommandRunSummary {
   id: string
   command: string
@@ -151,6 +169,11 @@ export interface SettingsStatus {
 }
 
 export const fetchSettings = () => getJson<SettingsStatus>('/api/settings')
+
+export const fetchBackups = () => getJson<BackupStatus>('/api/backups')
+
+export const runBackupNow = () =>
+  request<{ run_id: string; status: string }>('/api/backups', jsonInit('POST'))
 
 export const putSetting = (key: string, value: string) =>
   request<void>(`/api/settings/${key}`, jsonInit('PUT', { value }))
