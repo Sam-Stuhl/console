@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
+from console.api.backups import router as backups_router
 from console.api.commands import router as commands_router
 from console.api.containers import router as containers_router
 from console.api.deployments import router as deployments_router
@@ -22,6 +23,7 @@ from console.db.models import CommandRun, Deployment, utcnow
 from console.db.session import SessionLocal
 from console.deploy import engine as deploy_engine
 from console.cloudflare import AccessNotConfigured
+from console.backup.engine import backup_loop
 from console.deploy.reaper import reaper_loop
 from console.secrets.crypto import KeyNotConfigured
 
@@ -62,13 +64,16 @@ async def lifespan(_app: FastAPI):
         await session.commit()
 
     reaper = asyncio.create_task(reaper_loop())
+    backups = asyncio.create_task(backup_loop())
     yield
-    reaper.cancel()
-    with suppress(asyncio.CancelledError):
-        await reaper
+    for task in (reaper, backups):
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(title="console", lifespan=lifespan)
+app.include_router(backups_router)
 app.include_router(commands_router)
 app.include_router(containers_router)
 app.include_router(deployments_router)
