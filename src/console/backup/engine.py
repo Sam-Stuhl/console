@@ -20,10 +20,9 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import config
+from console import config, settings_store
 from console.backup import crypto
 from console.backup.store import BackupStore, resolve_store
 from console.db.models import BackupRun, utcnow
@@ -40,9 +39,26 @@ class BackupError(Exception):
     """A backup could not be produced or stored."""
 
 
+async def _resolve_passphrase(session: AsyncSession) -> bytes:
+    """The passphrase, a stored setting preferred over the mounted file."""
+    setting = await settings_store.get(session, settings_store.BACKUP_PASSPHRASE)
+    if setting:
+        return setting.encode()
+    file_value = crypto.read_file_passphrase()
+    if file_value:
+        return file_value
+    raise crypto.BackupPassphraseNotConfigured()
+
+
+async def _passphrase_available(session: AsyncSession) -> bool:
+    if await settings_store.get(session, settings_store.BACKUP_PASSPHRASE):
+        return True
+    return crypto.read_file_passphrase() is not None
+
+
 async def configured(session: AsyncSession) -> dict:
     """What is and isn't set up, for the UI and the scheduled-run guard."""
-    passphrase = crypto.passphrase_present()
+    passphrase = await _passphrase_available(session)
     destination = await resolve_store(session) is not None
     return {
         "passphrase": passphrase,
@@ -66,8 +82,9 @@ async def run_backup(run_id: str) -> None:
             store = await resolve_store(session)
             if store is None:
                 raise BackupError("no backup destination configured")
+            passphrase = await _resolve_passphrase(session)
             name = NAME_PREFIX + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".bin"
-            bundle = await run(_build_bundle)  # snapshot + tar + KDF encrypt, all blocking
+            bundle = await run(_build_bundle, passphrase)  # snapshot + tar + KDF encrypt, all blocking
             location = await store.put(name, bundle)
             backup.location = location
             backup.size_bytes = len(bundle)
@@ -82,7 +99,7 @@ async def run_backup(run_id: str) -> None:
             await session.commit()
 
 
-def _build_bundle() -> bytes:
+def _build_bundle(passphrase: bytes) -> bytes:
     db_bytes = _snapshot_bytes(config.DB_PATH)
     try:
         key_bytes = Path(config.KEY_FILE).read_bytes()
@@ -96,7 +113,7 @@ def _build_bundle() -> bytes:
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         _add(tar, "console.db", db_bytes)
         _add(tar, "console_key", key_bytes)
-    return crypto.encrypt(buf.getvalue())
+    return crypto.encrypt(buf.getvalue(), passphrase)
 
 
 def _snapshot_bytes(db_path: str) -> bytes:

@@ -1,11 +1,14 @@
-"""Encrypts a backup bundle with a passphrase kept outside the database it
-protects (CONSOLE_BACKUP_PASSPHRASE_FILE), the same reasoning as the Fernet key.
+"""Encrypts a backup bundle with a passphrase the caller supplies.
 
 The passphrase is stretched into a Fernet key with PBKDF2-HMAC-SHA256 over a
 random per-backup salt. The salt is not secret, so it is written as a fixed
 16-byte header ahead of the Fernet token; restore reads it back to redrive the
-key. Using a fresh salt per backup means two backups of identical bytes still
-differ on disk. Everything here is from `cryptography`, already a dependency."""
+key. A fresh salt per backup means two backups of identical bytes still differ
+on disk. Everything here is from `cryptography`, already a dependency.
+
+This module is deliberately ignorant of where the passphrase comes from: the
+engine resolves it (a stored setting, or the mounted CONSOLE_BACKUP_PASSPHRASE_FILE)
+and passes the bytes in. read_file_passphrase() is the file source."""
 
 import base64
 import os
@@ -24,10 +27,9 @@ KDF_ITERATIONS = 600_000
 class BackupPassphraseNotConfigured(Exception):
     def __init__(self) -> None:
         super().__init__(
-            "backup passphrase not configured: no file at "
-            f"{config.BACKUP_PASSPHRASE_FILE} (set CONSOLE_BACKUP_PASSPHRASE_FILE "
-            "to a mounted secret). Keep a copy of the passphrase offline; without "
-            "it a backup cannot be restored."
+            "backup passphrase not configured: set one in Settings, or mount a "
+            f"file at {config.BACKUP_PASSPHRASE_FILE}. Keep a copy offline; "
+            "without it a backup cannot be restored."
         )
 
 
@@ -35,23 +37,13 @@ class BackupRestoreError(Exception):
     """The bundle could not be decrypted (wrong passphrase or corrupt data)."""
 
 
-def passphrase_present() -> bool:
-    """Whether a usable passphrase file exists, without raising. For the UI and
-    the scheduled-run guard."""
-    try:
-        return bool(Path(config.BACKUP_PASSPHRASE_FILE).read_bytes().strip())
-    except OSError:
-        return False
-
-
-def _passphrase() -> bytes:
+def read_file_passphrase() -> bytes | None:
+    """The passphrase from the mounted file, or None if absent/empty."""
     try:
         value = Path(config.BACKUP_PASSPHRASE_FILE).read_bytes().strip()
-    except OSError as exc:
-        raise BackupPassphraseNotConfigured() from exc
-    if not value:
-        raise BackupPassphraseNotConfigured()
-    return value
+    except OSError:
+        return None
+    return value or None
 
 
 def _fernet(salt: bytes, passphrase: bytes) -> Fernet:
@@ -64,18 +56,17 @@ def _fernet(salt: bytes, passphrase: bytes) -> Fernet:
     return Fernet(base64.urlsafe_b64encode(kdf.derive(passphrase)))
 
 
-def encrypt(plaintext: bytes) -> bytes:
-    """salt || Fernet(token). Raises BackupPassphraseNotConfigured if unset."""
+def encrypt(plaintext: bytes, passphrase: bytes) -> bytes:
+    """salt || Fernet(token)."""
     salt = os.urandom(SALT_SIZE)
-    token = _fernet(salt, _passphrase()).encrypt(plaintext)
-    return salt + token
+    return salt + _fernet(salt, passphrase).encrypt(plaintext)
 
 
-def decrypt(bundle: bytes) -> bytes:
+def decrypt(bundle: bytes, passphrase: bytes) -> bytes:
     """Inverse of encrypt(). Raises BackupRestoreError on a bad passphrase."""
     salt, token = bundle[:SALT_SIZE], bundle[SALT_SIZE:]
     try:
-        return _fernet(salt, _passphrase()).decrypt(token)
+        return _fernet(salt, passphrase).decrypt(token)
     except InvalidToken as exc:
         raise BackupRestoreError(
             "could not decrypt the backup: wrong passphrase or corrupt bundle"

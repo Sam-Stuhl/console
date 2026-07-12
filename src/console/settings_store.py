@@ -16,6 +16,13 @@ CF_ACCOUNT_ID = "cf_account_id"
 # the encrypted backup bundles are pushed to.
 BACKUP_GITHUB_TOKEN = "backup_github_token"
 BACKUP_GITHUB_REPO = "backup_github_repo"
+# The passphrase that encrypts backup bundles. Storing it here (encrypted like
+# any secret) is safe: it only ever appears inside a bundle that is itself
+# encrypted with it, so a leaked backup repo still reveals nothing. It is the
+# user's job to keep an independent copy (their password manager), because a
+# backup exists to survive losing this box. A mounted file
+# (CONSOLE_BACKUP_PASSPHRASE_FILE) is still honored as an alternative.
+BACKUP_PASSPHRASE = "backup_passphrase"
 
 # Everything the settings UI knows how to manage. The account id and repo are
 # not really secret, but they ride the same encrypted store for uniformity.
@@ -26,6 +33,7 @@ KNOWN = frozenset(
         CF_ACCOUNT_ID,
         BACKUP_GITHUB_TOKEN,
         BACKUP_GITHUB_REPO,
+        BACKUP_PASSPHRASE,
     }
 )
 

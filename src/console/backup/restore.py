@@ -2,18 +2,28 @@
 
     python -m console.backup.restore <bundle-file> [--out DIR]
 
-Decrypts with the mounted passphrase (CONSOLE_BACKUP_PASSPHRASE_FILE) and
-extracts console.db and console_key into --out (default ./restored). It never
-touches a running console's state; putting the files into place is a deliberate
-manual step, printed at the end."""
+Decrypts with the passphrase from the mounted file
+(CONSOLE_BACKUP_PASSPHRASE_FILE) or, if there is none, prompts for it, so you
+can restore on a fresh box by typing the passphrase you kept in your password
+manager. Extracts console.db and console_key into --out (default ./restored). It
+never touches a running console's state; putting the files into place is a
+deliberate manual step, printed at the end."""
 
 import argparse
+import getpass
 import io
 import sys
 import tarfile
 from pathlib import Path
 
 from console.backup import crypto
+
+
+def _passphrase() -> bytes:
+    from_file = crypto.read_file_passphrase()
+    if from_file:
+        return from_file
+    return getpass.getpass("backup passphrase: ").encode()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -24,8 +34,8 @@ def main(argv: list[str] | None = None) -> int:
 
     bundle = Path(args.bundle).read_bytes()
     try:
-        tar_bytes = crypto.decrypt(bundle)
-    except (crypto.BackupRestoreError, crypto.BackupPassphraseNotConfigured) as exc:
+        tar_bytes = crypto.decrypt(bundle, _passphrase())
+    except crypto.BackupRestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

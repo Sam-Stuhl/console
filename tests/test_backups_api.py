@@ -32,6 +32,17 @@ async def test_status_shape_and_history(client, db):
     assert body["runs"][0]["status"] == "succeeded"
 
 
+async def test_passphrase_set_via_settings_shows_in_status(client):
+    # Not configured out of the box.
+    assert (await client.get("/api/backups")).json()["passphrase"] is False
+    # Setting it through the ordinary settings API flips the status.
+    res = await client.put(
+        "/api/settings/backup_passphrase", json={"value": "a-strong-passphrase"}
+    )
+    assert res.status_code == 204
+    assert (await client.get("/api/backups")).json()["passphrase"] is True
+
+
 async def test_trigger_rejected_when_not_configured(client, enqueued):
     res = await client.post("/api/backups")
     assert res.status_code == 400

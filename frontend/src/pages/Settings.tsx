@@ -187,20 +187,11 @@ export default function Settings() {
           offline, so the repo alone reveals nothing.
         </p>
 
-        <Steps
-          title="the passphrase (server-side, once)"
-          items={[
-            <>
-              Pick a strong passphrase and store it in your password manager. If
-              you lose it, backups cannot be restored.
-            </>,
-            <>
-              Put it in the file the console reads (
-              <Code>CONSOLE_BACKUP_PASSPHRASE_FILE</Code>, a mounted secret in
-              production), then restart the console.
-            </>,
-          ]}
-        />
+        <PassphraseField />
+        <p className="font-mono text-[11px] text-faint">
+          Prefer a mounted secret? A file at <Code>CONSOLE_BACKUP_PASSPHRASE_FILE</Code>{' '}
+          is still honored and takes over if no passphrase is set here.
+        </p>
 
         <Steps
           title="the destination repo"
@@ -247,6 +238,125 @@ export default function Settings() {
         </aside>
       </div>
     </SectionsProvider>
+  )
+}
+
+function PassphraseField() {
+  const queryClient = useQueryClient()
+  const { data } = useQuery({ queryKey: ['backups'], queryFn: fetchBackups })
+  const configured = data?.passphrase ?? false
+
+  const [value, setValue] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const [replacing, setReplacing] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const save = useMutation({
+    mutationFn: () => putSetting('backup_passphrase', value),
+    onSuccess: () => {
+      setActionError(null)
+      setValue('')
+      setConfirmed(false)
+      setReplacing(false)
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
+    },
+    onError: (err: Error) => setActionError(err.message),
+  })
+
+  function generate() {
+    const bytes = new Uint8Array(24)
+    crypto.getRandomValues(bytes)
+    const b64 = btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+    setValue(b64)
+    setConfirmed(false)
+  }
+
+  const showForm = !configured || replacing
+
+  return (
+    <div className="flex flex-col gap-2 pt-1">
+      <div className="flex items-center gap-2 font-mono text-xs">
+        <span className="w-24 text-muted">passphrase</span>
+        <span className={`h-1.5 w-1.5 rounded-full ${configured ? 'bg-success' : 'bg-base-300'}`} />
+        <span className="text-faint">{configured ? 'configured' : 'not set'}</span>
+        {configured && !replacing && (
+          <button
+            type="button"
+            className="ml-2 text-muted transition-colors duration-150 hover:text-base-content hover:underline"
+            onClick={() => setReplacing(true)}
+          >
+            replace
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <>
+          <Callout>
+            Copy this into your password manager now. It is never shown again and
+            cannot be recovered, and without it a backup can never be restored.
+            {configured && ' Replacing it leaves existing backups needing the old passphrase.'}
+          </Callout>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={value}
+              spellCheck={false}
+              onChange={(e) => {
+                setValue(e.target.value)
+                setConfirmed(false)
+              }}
+              placeholder="paste a passphrase, or generate one"
+              className="input input-sm w-80 max-w-full border-base-300 bg-base-100 font-mono text-xs"
+            />
+            <button
+              type="button"
+              onClick={generate}
+              className="rounded-field border border-base-300 px-3 py-1.5 font-mono text-xs text-muted transition-colors duration-150 hover:border-primary/50 hover:text-primary"
+            >
+              generate
+            </button>
+          </div>
+          <label className="flex items-center gap-2 font-mono text-xs text-faint">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(e) => setConfirmed(e.target.checked)}
+              className="checkbox checkbox-xs"
+            />
+            I&apos;ve saved this passphrase in my password manager
+          </label>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              disabled={!value.trim() || !confirmed || save.isPending}
+              onClick={() => save.mutate()}
+              className="btn btn-primary btn-sm font-mono"
+            >
+              save passphrase
+            </button>
+            {configured && replacing && (
+              <button
+                type="button"
+                className="font-mono text-xs text-muted transition-colors duration-150 hover:text-base-content"
+                onClick={() => {
+                  setReplacing(false)
+                  setValue('')
+                  setConfirmed(false)
+                }}
+              >
+                cancel
+              </button>
+            )}
+          </div>
+          {actionError && <p className="font-mono text-xs text-error">{actionError}</p>}
+        </>
+      )}
+    </div>
   )
 }
 
