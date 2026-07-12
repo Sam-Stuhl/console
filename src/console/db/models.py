@@ -82,6 +82,23 @@ class CommandRun(Base):
     finished_at: Mapped[datetime | None]
 
 
+class BackupRun(Base):
+    """One off-box backup of the console's own state (the SQLite DB plus the
+    Fernet key), encrypted with a passphrase kept outside the DB. Recorded like
+    a CommandRun so the UI can show history and the last-backup status."""
+
+    __tablename__ = "backup_runs"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=new_id)
+    trigger: Mapped[str] = mapped_column(Text)  # scheduled|manual
+    status: Mapped[str] = mapped_column(Text)  # running|succeeded|failed
+    location: Mapped[str | None] = mapped_column(Text)  # where the bundle landed
+    size_bytes: Mapped[int | None]
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    finished_at: Mapped[datetime | None]
+
+
 class Setting(Base):
     """Server-level config the console manages itself: the GHCR read token for
     pulling private images, and the Cloudflare Access credentials. Values are

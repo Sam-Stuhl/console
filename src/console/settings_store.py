@@ -12,10 +12,22 @@ from console.secrets import crypto
 GHCR_TOKEN = "ghcr_token"
 CF_API_TOKEN = "cf_api_token"
 CF_ACCOUNT_ID = "cf_account_id"
+# Backup destination: a repo-scoped PAT and the "owner/name" of a private repo
+# the encrypted backup bundles are pushed to.
+BACKUP_GITHUB_TOKEN = "backup_github_token"
+BACKUP_GITHUB_REPO = "backup_github_repo"
 
-# Everything the settings UI knows how to manage. The account id is not really
-# secret, but it rides the same encrypted store for uniformity.
-KNOWN = frozenset({GHCR_TOKEN, CF_API_TOKEN, CF_ACCOUNT_ID})
+# Everything the settings UI knows how to manage. The account id and repo are
+# not really secret, but they ride the same encrypted store for uniformity.
+KNOWN = frozenset(
+    {
+        GHCR_TOKEN,
+        CF_API_TOKEN,
+        CF_ACCOUNT_ID,
+        BACKUP_GITHUB_TOKEN,
+        BACKUP_GITHUB_REPO,
+    }
+)
 
 
 async def get(session: AsyncSession, key: str) -> str | None:

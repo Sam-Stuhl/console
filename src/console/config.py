@@ -40,6 +40,16 @@ HEALTH_POLL_INTERVAL = 2
 COMMAND_TIMEOUT = 30 * 60  # wall-clock cap for a single run, seconds
 COMMAND_OUTPUT_MAX = 256 * 1024  # stored-output cap per run, bytes
 
+# Off-box backup of the console's own state. The passphrase encrypts the
+# bundle and must live outside the DB it protects, so it is a mounted secret
+# like the Fernet key, never a UI setting. The destination creds ride the
+# settings store. Without a passphrase and a destination, backups are skipped.
+BACKUP_PASSPHRASE_FILE = os.environ.get(
+    "CONSOLE_BACKUP_PASSPHRASE_FILE", "/run/secrets/console_backup_passphrase"
+)
+BACKUP_INTERVAL = int(os.environ.get("CONSOLE_BACKUP_INTERVAL", str(24 * 3600)))  # seconds
+BACKUP_RETENTION = int(os.environ.get("CONSOLE_BACKUP_RETENTION", "7"))  # keep newest N
+
 # Reaper timeouts for stuck deployments, in seconds
 REAPER_INTERVAL = 60
 BUILD_TIMEOUT = 30 * 60
