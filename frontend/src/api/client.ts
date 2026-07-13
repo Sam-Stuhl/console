@@ -45,6 +45,7 @@ export interface Project {
   protected: boolean
   access_emails: string[]
   health: string // live liveness from the monitor: up | down | unknown
+  domain: string // base domain it serves under
 }
 
 export interface SecretMeta {
@@ -154,7 +155,11 @@ export const createProject = (body: {
   repo: string
   branch: string
   subdomain: string
+  domain?: string
 }) => request<Project>('/api/projects', jsonInit('POST', body))
+
+export const fetchDomains = () =>
+  getJson<{ domains: string[] }>('/api/projects/domains')
 
 export const deleteProject = (id: string) =>
   request<void>(`/api/projects/${id}`, jsonInit('DELETE'))

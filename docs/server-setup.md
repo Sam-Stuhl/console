@@ -216,6 +216,26 @@ compromise cannot touch DNS, the tunnel, or the rest of your account. (Mounting
 `secrets/cf_api_token` and setting `CF_ACCOUNT_ID` in `.env` still works as a
 fallback, but Settings is simpler.)
 
+## Adding another domain
+
+Apps serve at `{subdomain}.{domain}`. The primary domain is `CONSOLE_DOMAIN`;
+to host apps under a second domain, give that domain the same one-time setup as
+the primary, then tell the console about it:
+
+1. In Cloudflare, add a **wildcard tunnel route** `*.newdomain.com` -> service
+   `traefik:80` on the same tunnel (exactly like the primary's wildcard in step
+   3), and make sure its DNS is managed by Cloudflare. If your plan refuses a
+   proxied wildcard, add each app's hostname on the new domain by hand when you
+   register it.
+2. In the console: **Settings -> domains**, add `newdomain.com` (comma-separated
+   for more than one).
+
+That is all. The console never touches Cloudflare DNS or the tunnel; it only
+records which domains exist so a project's create form can offer them, sets the
+Traefik `Host` rule to the chosen domain, and gates the right hostname when you
+flip a project's access toggle. Registering a project then shows a **domain**
+picker; pick the new domain and deploy.
+
 ## Updating the console later
 
 ```

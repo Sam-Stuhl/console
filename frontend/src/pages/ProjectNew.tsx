@@ -1,17 +1,27 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import { createProject } from '../api/client'
+import { createProject, fetchDomains } from '../api/client'
 
 const SUBDOMAIN_HINT = 'lowercase letters, digits, inner hyphens; max 32 chars'
 
 export default function ProjectNew() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [form, setForm] = useState({ name: '', repo: '', branch: 'main', subdomain: '' })
+  const [form, setForm] = useState({
+    name: '',
+    repo: '',
+    branch: 'main',
+    subdomain: '',
+    domain: '',
+  })
+
+  const { data: domainData } = useQuery({ queryKey: ['domains'], queryFn: fetchDomains })
+  const domainList = domainData?.domains ?? []
+  const domain = form.domain || domainList[0] || ''
 
   const create = useMutation({
-    mutationFn: () => createProject(form),
+    mutationFn: () => createProject({ ...form, domain: domain || undefined }),
     onSuccess: (project) => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       navigate(`/projects/${project.id}`)
@@ -67,6 +77,25 @@ export default function ProjectNew() {
           placeholder="your-app"
           required
         />
+        {domainList.length > 1 && (
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-xs text-muted">domain</span>
+            <select
+              value={domain}
+              onChange={(e) => setForm({ ...form, domain: e.target.value })}
+              className="select select-sm w-full border-base-300 bg-base-100 font-mono text-sm"
+            >
+              {domainList.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+            <span className="font-mono text-xs text-faint">
+              serves at {form.subdomain || 'your-app'}.{domain}
+            </span>
+          </label>
+        )}
 
         {create.isError && (
           <p className="font-mono text-xs text-error">{(create.error as Error).message}</p>

@@ -267,6 +267,37 @@ export default function Settings() {
             />
             <AlertTest disabled={!isSet('ntfy_topic')} />
           </CollapsibleSection>
+
+          <CollapsibleSection id="domains" title="domains">
+            <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
+              Apps serve at <Code>{'{subdomain}.{domain}'}</Code>. Every project
+              can use the primary domain out of the box; list additional domains
+              here to offer them when registering a project.
+            </p>
+            <Steps
+              title="add a domain (once per domain)"
+              items={[
+                <>
+                  In Cloudflare, give the new domain the same one-time setup as
+                  the primary: a wildcard{' '}
+                  <Code>*.newdomain.com</Code> tunnel route to{' '}
+                  <Code>traefik:80</Code> and its DNS. The console never touches
+                  Cloudflare DNS or the tunnel.
+                </>,
+                <>
+                  Add the domain below (comma-separated for more than one). It
+                  then appears in the project&apos;s domain picker.
+                </>,
+              ]}
+            />
+            <SettingField
+              keyName="domains"
+              label="extra domains"
+              placeholder="apps.example.com, blog.example.com"
+              isSet={isSet('domains')}
+              secret={false}
+            />
+          </CollapsibleSection>
         </div>
 
         <aside className="sticky top-20 hidden w-44 shrink-0 lg:block">
