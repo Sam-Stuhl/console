@@ -261,6 +261,26 @@ export const redeployDeployment = (projectId: string, deploymentId: string) =>
     jsonInit('POST'),
   )
 
+export interface ProjectContainer {
+  state: string // running | exited | created | absent | …
+  name?: string
+  image?: string
+  started_at?: string | null
+  finished_at?: string | null
+  exit_code?: number | null
+}
+
+export type ControlAction = 'start' | 'stop' | 'restart'
+
+export const fetchProjectContainer = (projectId: string) =>
+  getJson<ProjectContainer>(`/api/projects/${projectId}/container`)
+
+export const controlApp = (projectId: string, action: ControlAction) =>
+  request<ProjectContainer>(
+    `/api/projects/${projectId}/controls/${action}`,
+    jsonInit('POST'),
+  )
+
 export const runCommand = (projectId: string, command: string) =>
   request<{ run_id: string; status: string }>(
     `/api/projects/${projectId}/commands`,

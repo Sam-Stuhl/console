@@ -5,6 +5,7 @@ import { localDay } from '../lib/format'
 import SecretsSection from '../components/SecretsSection'
 import DeploymentsSection from '../components/DeploymentsSection'
 import CommandSection from '../components/CommandSection'
+import ControlsSection from '../components/ControlsSection'
 import SetupSection from '../components/SetupSection'
 import AccessSection from '../components/AccessSection'
 import ConfirmButton from '../components/ConfirmButton'
@@ -106,6 +107,10 @@ export default function ProjectDetail() {
             <DeploymentsSection projectId={id} branch={project?.branch ?? 'main'} />
           )}
         </Section>
+      )}
+
+      {!needsSetup && (
+        <Section title="controls">{id && <ControlsSection projectId={id} />}</Section>
       )}
 
       {!needsSetup && (
