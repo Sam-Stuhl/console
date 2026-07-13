@@ -3,12 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   deleteSetting,
   fetchBackups,
+  fetchCredentials,
   fetchDeployments,
   fetchProjects,
   fetchSettings,
   putSetting,
   runBackupNow,
   sendTestAlert,
+  setCredentialExpiry,
+  type CredentialStatus,
 } from '../api/client'
 import { formatBytes, since } from '../lib/format'
 import {
@@ -298,6 +301,15 @@ export default function Settings() {
               secret={false}
             />
           </CollapsibleSection>
+
+          <CollapsibleSection id="credential-expiry" title="credential expiry">
+            <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
+              Tokens expire and quietly break deploys or the access toggle. Set
+              each one&apos;s expiry date and the console warns you (via your ntfy
+              topic) before it lapses.
+            </p>
+            <CredentialExpiry />
+          </CollapsibleSection>
         </div>
 
         <aside className="sticky top-20 hidden w-44 shrink-0 lg:block">
@@ -427,6 +439,94 @@ function PassphraseField() {
         </>
       )}
     </div>
+  )
+}
+
+const EXPIRY_TONE: Record<string, string> = {
+  ok: 'text-muted',
+  warn: 'text-warning',
+  expired: 'text-error',
+  none: 'text-faint',
+}
+const EXPIRY_DOT: Record<string, string> = {
+  ok: 'bg-success',
+  warn: 'bg-warning',
+  expired: 'bg-error',
+  none: 'bg-base-300',
+}
+
+function expiryLabel(c: CredentialStatus): string {
+  if (c.days_left === null) return 'no date set'
+  if (c.days_left < 0) return `expired ${-c.days_left}d ago`
+  return `expires in ${c.days_left}d`
+}
+
+function CredentialExpiry() {
+  const { data } = useQuery({ queryKey: ['credentials'], queryFn: fetchCredentials })
+  if (!data) return <span className="skeleton h-8 w-full max-w-md" />
+  return (
+    <table className="w-full max-w-2xl font-mono text-xs">
+      <tbody>
+        {data.map((c) => (
+          <CredentialRow key={c.key} cred={c} />
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function CredentialRow({ cred }: { cred: CredentialStatus }) {
+  const queryClient = useQueryClient()
+  const [value, setValue] = useState(cred.expires_at ?? '')
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const save = useMutation({
+    mutationFn: (date: string | null) => setCredentialExpiry(cred.key, date),
+    onSuccess: () => {
+      setActionError(null)
+      queryClient.invalidateQueries({ queryKey: ['credentials'] })
+    },
+    onError: (err: Error) => setActionError(err.message),
+  })
+
+  const dirty = (value || null) !== (cred.expires_at ?? null)
+
+  return (
+    <tr className="border-b border-base-300/40 last:border-none align-top">
+      <td className="py-2 pr-4">
+        <div className="flex flex-col">
+          <span>{cred.label}</span>
+          <span className="text-faint">{cred.set ? 'configured' : 'not set'}</span>
+        </div>
+      </td>
+      <td className="py-2 pr-3">
+        <input
+          type="date"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="input input-xs border-base-300 bg-base-100 font-mono text-xs"
+        />
+      </td>
+      <td className="py-2 pr-4">
+        {dirty && (
+          <button
+            type="button"
+            disabled={save.isPending}
+            onClick={() => save.mutate(value || null)}
+            className="text-accent transition-colors duration-150 hover:underline disabled:opacity-40"
+          >
+            save
+          </button>
+        )}
+      </td>
+      <td className="py-2 text-right">
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`h-1.5 w-1.5 rounded-full ${EXPIRY_DOT[cred.state]}`} />
+          <span className={EXPIRY_TONE[cred.state]}>{expiryLabel(cred)}</span>
+        </span>
+        {actionError && <div className="text-error">{actionError}</div>}
+      </td>
+    </tr>
   )
 }
 

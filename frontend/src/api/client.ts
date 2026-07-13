@@ -179,6 +179,20 @@ export const fetchSettings = () => getJson<SettingsStatus>('/api/settings')
 export const sendTestAlert = () =>
   request<{ sent: boolean }>('/api/alerts/test', jsonInit('POST'))
 
+export interface CredentialStatus {
+  key: string
+  label: string
+  set: boolean
+  expires_at: string | null
+  days_left: number | null
+  state: string // ok | warn | expired | none
+}
+
+export const fetchCredentials = () => getJson<CredentialStatus[]>('/api/credentials')
+
+export const setCredentialExpiry = (key: string, expires_at: string | null) =>
+  request<void>(`/api/credentials/${key}/expiry`, jsonInit('PUT', { expires_at }))
+
 export const fetchBackups = () => getJson<BackupStatus>('/api/backups')
 
 export const runBackupNow = () =>
