@@ -50,6 +50,14 @@ BACKUP_PASSPHRASE_FILE = os.environ.get(
 BACKUP_INTERVAL = int(os.environ.get("CONSOLE_BACKUP_INTERVAL", str(24 * 3600)))  # seconds
 BACKUP_RETENTION = int(os.environ.get("CONSOLE_BACKUP_RETENTION", "7"))  # keep newest N
 
+# Liveness monitor: ping each live app's health URL on a tick, alert on a
+# sustained outage. Container-to-container, so it only resolves from inside the
+# docker network (like deploys); from host uvicorn every app reads down.
+MONITOR_INTERVAL = 60  # seconds between sweeps
+MONITOR_TIMEOUT = 5  # per-check HTTP timeout
+MONITOR_FAIL_THRESHOLD = 2  # consecutive failures before alerting (anti-flap)
+NTFY_DEFAULT_SERVER = "https://ntfy.sh"
+
 # Reaper timeouts for stuck deployments, in seconds
 REAPER_INTERVAL = 60
 BUILD_TIMEOUT = 30 * 60

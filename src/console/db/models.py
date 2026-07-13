@@ -99,6 +99,24 @@ class BackupRun(Base):
     finished_at: Mapped[datetime | None]
 
 
+class ProjectHealth(Base):
+    """Live liveness of a project's app, one row per project, maintained by the
+    monitor loop. Distinct from deploy status: an app can be deploy-'live' but
+    not answering. alerted tracks whether the current down episode was already
+    announced, so an outage alerts once, not every tick."""
+
+    __tablename__ = "project_health"
+
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    state: Mapped[str] = mapped_column(Text)  # up|down|unknown
+    fail_streak: Mapped[int] = mapped_column(default=0, server_default="0")
+    alerted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    checked_at: Mapped[datetime | None]
+    changed_at: Mapped[datetime | None]
+
+
 class Setting(Base):
     """Server-level config the console manages itself: the GHCR read token for
     pulling private images, and the Cloudflare Access credentials. Values are

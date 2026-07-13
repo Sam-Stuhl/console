@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
+from console.api.alerts import router as alerts_router
 from console.api.backups import router as backups_router
 from console.api.commands import router as commands_router
 from console.api.containers import router as containers_router
@@ -26,6 +27,7 @@ from console.deploy import engine as deploy_engine
 from console.cloudflare import AccessNotConfigured
 from console.backup.engine import backup_loop
 from console.deploy.reaper import reaper_loop
+from console.monitor import monitor_loop
 from console.secrets.crypto import KeyNotConfigured
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -66,14 +68,16 @@ async def lifespan(_app: FastAPI):
 
     reaper = asyncio.create_task(reaper_loop())
     backups = asyncio.create_task(backup_loop())
+    monitor = asyncio.create_task(monitor_loop())
     yield
-    for task in (reaper, backups):
+    for task in (reaper, backups, monitor):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
 
 
 app = FastAPI(title="console", lifespan=lifespan)
+app.include_router(alerts_router)
 app.include_router(backups_router)
 app.include_router(commands_router)
 app.include_router(containers_router)

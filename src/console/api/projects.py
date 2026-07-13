@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from console import cloudflare, config
-from console.db.models import Project
+from console.db.models import Project, ProjectHealth
 from console.db.session import get_session
 from console.schema.console_toml import validate_subdomain_format
 from console.starters import starter_files
@@ -35,6 +35,7 @@ class ProjectOut(BaseModel):
     url: str  # where it serves, e.g. https://notion-sync.samstuhl.com
     protected: bool  # Cloudflare Access login is in front of it
     access_emails: list[str]
+    health: str  # live liveness from the monitor: up | down | unknown
 
 
 class AccessUpdate(BaseModel):
@@ -42,7 +43,7 @@ class AccessUpdate(BaseModel):
     emails: list[str] = []
 
 
-def _out(project: Project) -> ProjectOut:
+def _out(project: Project, health: str = "unknown") -> ProjectOut:
     return ProjectOut(
         id=project.id,
         name=project.name,
@@ -53,6 +54,7 @@ def _out(project: Project) -> ProjectOut:
         url=f"https://{project.subdomain}.{config.DOMAIN}",
         protected=project.protected,
         access_emails=project.access_emails.split(",") if project.access_emails else [],
+        health=health,
     )
 
 
@@ -65,8 +67,10 @@ async def get_project(project_id: str, session: AsyncSession) -> Project:
 
 @router.get("")
 async def list_projects(session: AsyncSession = Depends(get_session)) -> list[ProjectOut]:
-    result = await session.scalars(select(Project).order_by(Project.created_at))
-    return [_out(p) for p in result]
+    projects = (await session.scalars(select(Project).order_by(Project.created_at))).all()
+    health_rows = await session.scalars(select(ProjectHealth))
+    health = {h.project_id: h.state for h in health_rows}
+    return [_out(p, health.get(p.id, "unknown")) for p in projects]
 
 
 @router.post("", status_code=201)
@@ -103,7 +107,9 @@ async def create_project(
 async def get_one(
     project_id: str, session: AsyncSession = Depends(get_session)
 ) -> ProjectOut:
-    return _out(await get_project(project_id, session))
+    project = await get_project(project_id, session)
+    health = await session.get(ProjectHealth, project_id)
+    return _out(project, health.state if health else "unknown")
 
 
 @router.put("/{project_id}/access")

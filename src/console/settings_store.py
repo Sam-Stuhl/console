@@ -23,6 +23,11 @@ BACKUP_GITHUB_REPO = "backup_github_repo"
 # backup exists to survive losing this box. A mounted file
 # (CONSOLE_BACKUP_PASSPHRASE_FILE) is still honored as an alternative.
 BACKUP_PASSPHRASE = "backup_passphrase"
+# ntfy alert channel: the topic the console publishes to (down/up, deploy
+# failures) and the server hosting it. The topic name is the only secret; on
+# public ntfy.sh anyone who knows it can read the notifications.
+NTFY_TOPIC = "ntfy_topic"
+NTFY_SERVER = "ntfy_server"
 
 # Everything the settings UI knows how to manage. The account id and repo are
 # not really secret, but they ride the same encrypted store for uniformity.
@@ -34,6 +39,8 @@ KNOWN = frozenset(
         BACKUP_GITHUB_TOKEN,
         BACKUP_GITHUB_REPO,
         BACKUP_PASSPHRASE,
+        NTFY_TOPIC,
+        NTFY_SERVER,
     }
 )
 

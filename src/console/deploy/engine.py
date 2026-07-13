@@ -11,6 +11,7 @@ check. Tasks do not survive a restart: lifespan re-enqueues queued rows,
 and rows orphaned mid-deploy are the reaper's job."""
 
 import asyncio
+import logging
 import time
 
 import docker.errors
@@ -18,13 +19,15 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import config, settings_store
+from console import alerts, config, settings_store
 from console.db.models import Deployment, Project, Secret, utcnow
 from console.db.session import SessionLocal
 from console.deploy import plan
 from console.docker.client import get_client, run
 from console.schema.console_toml import ConsoleConfig
 from console.secrets.crypto import KeyNotConfigured, decrypt
+
+logger = logging.getLogger(__name__)
 
 _locks: dict[str, asyncio.Lock] = {}
 _tasks: set[asyncio.Task] = set()
@@ -277,6 +280,20 @@ async def _fail(session: AsyncSession, deployment: Deployment, reason: str) -> N
     deployment.finished_at = utcnow()
     deployment.log = (deployment.log or "") + f"failed: {reason}\n"
     await session.commit()
+
+    # Best-effort deploy-failure alert; never let it break the fail path.
+    try:
+        project = await session.get(Project, deployment.project_id)
+        name = project.name if project else deployment.project_id
+        await alerts.send(
+            session,
+            f"{name} deploy failed",
+            f"{deployment.sha[:7]}: {reason}",
+            tags=["rotating_light"],
+            priority="high",
+        )
+    except Exception:
+        logger.warning("deploy-failure alert failed", exc_info=True)
 
 
 async def _log(session: AsyncSession, deployment: Deployment, line: str) -> None:
