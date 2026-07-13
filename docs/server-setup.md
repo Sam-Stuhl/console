@@ -3,7 +3,10 @@
 Stand up the console on the Windows home server, behind Cloudflare, with the
 deploy pipeline live. When this is done, `console.samstuhl.com` shows the
 console (gated by Cloudflare Access), GitHub can POST to `/hooks`, and
-pushing an app repo deploys it.
+pushing an app repo deploys it. Once it is up, **Settings** also configures the
+operational extras in the browser, no files or restarts: private-image pulls,
+the access-toggle credentials, off-box backups, uptime alerts, extra domains,
+and credential-expiry warnings (steps 9-10).
 
 The console is run **by hand** here and is never deployed through its own
 engine. It is built by CI (never on the server); the server only pulls.
@@ -216,6 +219,43 @@ compromise cannot touch DNS, the tunnel, or the rest of your account. (Mounting
 `secrets/cf_api_token` and setting `CF_ACCOUNT_ID` in `.env` still works as a
 fallback, but Settings is simpler.)
 
+## 10. Backups, alerts, and credential expiry (recommended)
+
+The rest of the console's operational features are configured the same way, in
+**Settings**, in the browser. None are required for deploys to work, but the
+first two are worth doing on day one.
+
+**Backups** (an off-box, encrypted copy of the console's own database plus the
+Fernet key). Lose the key and every stored secret is gone, so this is the backup
+that matters.
+
+1. Create a **private** GitHub repo for backups, e.g. `Sam-Stuhl/console-backups`.
+2. Make a fine-grained PAT scoped to that one repo with **Contents: Read and
+   write** (a classic token with `repo` also works).
+3. Console -> **Settings -> backups**: set a **passphrase** (generate one and
+   save it in your password manager, it cannot be recovered and is required to
+   restore), then the repo (`owner/name`) and the token. Click **back up now**
+   and confirm a bundle lands in the repo.
+
+Backups then run nightly and prune to the retention count. Restore with
+`python -m console.backup.restore <bundle>` (it prompts for the passphrase); pull
+the backups repo with `git clone`, not a browser or `gh` download, which mangles
+the binary. The passphrase can instead be a mounted secret
+(`CONSOLE_BACKUP_PASSPHRASE_FILE`) if you prefer files over Settings; either way,
+keep a copy off the box.
+
+**Alerts** (a push notification when an app goes down or recovers, or a deploy
+fails). The console publishes to an [ntfy](https://ntfy.sh) topic.
+
+1. Install the ntfy app, pick a hard-to-guess topic name, and subscribe to it.
+2. Console -> **Settings -> alerts**: paste the topic and click **send test** to
+   confirm it reaches your phone.
+
+**Credential expiry** (warn before a token lapses). Console -> **Settings ->
+credential expiry**: set the expiry date for the GHCR, Cloudflare, and backup
+tokens. About two weeks out the console warns through your ntfy topic, so an
+expired token never silently breaks a deploy.
+
 ## Adding another domain
 
 Apps serve at `{subdomain}.{domain}`. The primary domain is `CONSOLE_DOMAIN`;
@@ -257,3 +297,9 @@ reach the server.
 - **No host ports:** nothing is published to the PC. To debug without the
   tunnel, temporarily add `ports: ["80:80"]` to the Traefik service, or curl
   from inside the `web` network as in step 7.
+- **Container terminal:** the per-app terminal is the one websocket in the app
+  (everything else polls). Cloudflare tunnels proxy websockets by default, and it
+  sits behind the same Access login as the console UI, so no extra setup.
+- **Liveness checks:** the uptime monitor pings each app container-to-container
+  on the `web` network, so it only works with the console running in-container
+  (as here); from a host-run dev server every app reads down.
