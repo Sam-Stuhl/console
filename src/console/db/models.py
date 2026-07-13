@@ -25,6 +25,9 @@ class Project(Base):
     repo: Mapped[str] = mapped_column(Text, unique=True)  # "sam-stuhl/notion-sync"
     branch: Mapped[str] = mapped_column(Text, default="main")
     subdomain: Mapped[str] = mapped_column(Text, unique=True)
+    # The base domain the app serves under; the host is {subdomain}.{domain}.
+    # Null means the primary CONSOLE_DOMAIN (existing projects predate this).
+    domain: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     # Cloudflare Access gate for this app's hostname. protected mirrors whether
     # an Access app exists; cf_app_id is the id we created (to update/delete

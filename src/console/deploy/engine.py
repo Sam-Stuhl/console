@@ -19,7 +19,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import alerts, config, settings_store
+from console import alerts, config, domains, settings_store
 from console.db.models import Deployment, Project, Secret, utcnow
 from console.db.session import SessionLocal
 from console.deploy import plan
@@ -125,6 +125,7 @@ async def _deploy(
     labels = plan.build_labels(
         name=name,
         subdomain=cfg.app.subdomain,
+        domain=domains.of(project),
         port=cfg.app.port,
         priority=priority,
         project_id=project.id,

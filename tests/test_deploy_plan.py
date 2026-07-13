@@ -27,6 +27,7 @@ def test_labels_match_the_runbook():
     labels = plan.build_labels(
         name="app-demo-e5f6a7b",
         subdomain="app-demo",
+        domain="samstuhl.com",
         port=80,
         priority=3_999_999_999,
         project_id="p1",
@@ -35,7 +36,7 @@ def test_labels_match_the_runbook():
     )
     assert labels == {
         "traefik.enable": "true",
-        "traefik.http.routers.app-demo-e5f6a7b.rule": "Host(`app-demo.localhost`)",
+        "traefik.http.routers.app-demo-e5f6a7b.rule": "Host(`app-demo.samstuhl.com`)",
         "traefik.http.routers.app-demo-e5f6a7b.entrypoints": "web",
         "traefik.http.routers.app-demo-e5f6a7b.priority": "3999999999",
         "traefik.http.services.app-demo-e5f6a7b.loadbalancer.server.port": "80",
@@ -46,13 +47,13 @@ def test_labels_match_the_runbook():
     }
 
 
-def test_host_rule_uses_domain(monkeypatch):
-    monkeypatch.setattr(config, "DOMAIN", "samstuhl.com")
-    assert plan.host_rule("app-demo") == "Host(`app-demo.samstuhl.com`)"
+def test_host_rule_uses_domain():
+    assert plan.host_rule("app-demo", "samstuhl.com") == "Host(`app-demo.samstuhl.com`)"
+    assert plan.host_rule("app-demo", "other.com") == "Host(`app-demo.other.com`)"
 
 
 def test_priority_extracted_from_labels():
-    labels = plan.build_labels("n", "s", 80, 42, "p", "d", "sha0000")
+    labels = plan.build_labels("n", "s", "d.com", 80, 42, "p", "d", "sha0000")
     assert plan.extract_router_priority(labels) == 42
 
 

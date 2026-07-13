@@ -21,8 +21,8 @@ def container_name(app_name: str, sha: str) -> str:
     return f"{app_name}-{sha[:7]}"
 
 
-def host_rule(subdomain: str) -> str:
-    return f"Host(`{subdomain}.{config.DOMAIN}`)"
+def host_rule(subdomain: str, domain: str) -> str:
+    return f"Host(`{subdomain}.{domain}`)"
 
 
 def health_url(name: str, port: int, path: str) -> str:
@@ -32,6 +32,7 @@ def health_url(name: str, port: int, path: str) -> str:
 def build_labels(
     name: str,
     subdomain: str,
+    domain: str,
     port: int,
     priority: int,
     project_id: str,
@@ -40,7 +41,7 @@ def build_labels(
 ) -> dict[str, str]:
     return {
         "traefik.enable": "true",
-        f"traefik.http.routers.{name}.rule": host_rule(subdomain),
+        f"traefik.http.routers.{name}.rule": host_rule(subdomain, domain),
         f"traefik.http.routers.{name}.entrypoints": "web",
         f"traefik.http.routers.{name}.priority": str(priority),
         f"traefik.http.services.{name}.loadbalancer.server.port": str(port),

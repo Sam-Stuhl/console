@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import cloudflare, config
+from console import cloudflare, domains
 from console.db.models import Project, ProjectHealth
 from console.db.session import get_session
 from console.schema.console_toml import validate_subdomain_format
@@ -23,6 +23,7 @@ class ProjectCreate(BaseModel):
     repo: str
     branch: str = Field(default="main", min_length=1, max_length=100)
     subdomain: str
+    domain: str | None = None  # None means the primary CONSOLE_DOMAIN
 
 
 class ProjectOut(BaseModel):
@@ -31,6 +32,7 @@ class ProjectOut(BaseModel):
     repo: str
     branch: str
     subdomain: str
+    domain: str  # the base domain it serves under
     created_at: datetime
     url: str  # where it serves, e.g. https://notion-sync.samstuhl.com
     protected: bool  # Cloudflare Access login is in front of it
@@ -44,14 +46,16 @@ class AccessUpdate(BaseModel):
 
 
 def _out(project: Project, health: str = "unknown") -> ProjectOut:
+    domain = domains.of(project)
     return ProjectOut(
         id=project.id,
         name=project.name,
         repo=project.repo,
         branch=project.branch,
         subdomain=project.subdomain,
+        domain=domain,
         created_at=project.created_at,
-        url=f"https://{project.subdomain}.{config.DOMAIN}",
+        url=f"https://{project.subdomain}.{domain}",
         protected=project.protected,
         access_emails=project.access_emails.split(",") if project.access_emails else [],
         health=health,
@@ -87,6 +91,11 @@ async def create_project(
         raise HTTPException(
             status_code=400, detail=f'repo "{body.repo}" must look like "owner/name"'
         )
+    if body.domain is not None and body.domain not in await domains.available(session):
+        raise HTTPException(
+            status_code=400,
+            detail=f'domain "{body.domain}" is not configured; add it in Settings first',
+        )
     for field in ("name", "repo", "subdomain"):
         value = getattr(body, field)
         exists = await session.scalar(
@@ -101,6 +110,13 @@ async def create_project(
     session.add(project)
     await session.commit()
     return _out(project)
+
+
+@router.get("/domains")
+async def list_domains(session: AsyncSession = Depends(get_session)) -> dict:
+    """The base domains a project can be created under (primary + configured
+    extras). Declared before /{project_id} so the static path wins."""
+    return {"domains": await domains.available(session)}
 
 
 @router.get("/{project_id}")
@@ -134,7 +150,7 @@ async def set_access(
             if not EMAIL_RE.match(email):
                 raise HTTPException(status_code=400, detail=f'"{email}" is not a valid email')
 
-    hostname = f"{project.subdomain}.{config.DOMAIN}"
+    hostname = f"{project.subdomain}.{domains.of(project)}"
     token, account_id = await cloudflare.resolve_credentials(session)  # 503 if unconfigured
     try:
         cf_app_id = await cloudflare.Access(token, account_id).reconcile(

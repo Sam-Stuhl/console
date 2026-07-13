@@ -28,6 +28,10 @@ BACKUP_PASSPHRASE = "backup_passphrase"
 # public ntfy.sh anyone who knows it can read the notifications.
 NTFY_TOPIC = "ntfy_topic"
 NTFY_SERVER = "ntfy_server"
+# Extra base domains apps can be hosted under, comma-separated, beyond the
+# primary CONSOLE_DOMAIN. Each is a one-time manual Cloudflare setup; the console
+# only records which exist so a project can pick one.
+DOMAINS = "domains"
 
 # Everything the settings UI knows how to manage. The account id and repo are
 # not really secret, but they ride the same encrypted store for uniformity.
@@ -41,6 +45,7 @@ KNOWN = frozenset(
         BACKUP_PASSPHRASE,
         NTFY_TOPIC,
         NTFY_SERVER,
+        DOMAINS,
     }
 )
 
