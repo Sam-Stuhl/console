@@ -44,6 +44,7 @@ export interface Project {
   url: string
   protected: boolean
   access_emails: string[]
+  health: string // live liveness from the monitor: up | down | unknown
 }
 
 export interface SecretMeta {
@@ -169,6 +170,9 @@ export interface SettingsStatus {
 }
 
 export const fetchSettings = () => getJson<SettingsStatus>('/api/settings')
+
+export const sendTestAlert = () =>
+  request<{ sent: boolean }>('/api/alerts/test', jsonInit('POST'))
 
 export const fetchBackups = () => getJson<BackupStatus>('/api/backups')
 

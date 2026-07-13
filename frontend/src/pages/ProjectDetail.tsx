@@ -94,7 +94,12 @@ export default function ProjectDetail() {
 
       {project && (
         <Section title="website">
-          <WebsiteTile url={project.url} name={project.name} live={isLive} />
+          <WebsiteTile
+            url={project.url}
+            name={project.name}
+            health={project.health}
+            isLive={isLive}
+          />
         </Section>
       )}
 
@@ -150,7 +155,27 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function WebsiteTile({ url, name, live }: { url: string; name: string; live: boolean }) {
+function WebsiteTile({
+  url,
+  name,
+  health,
+  isLive,
+}: {
+  url: string
+  name: string
+  health: string
+  isLive: boolean
+}) {
+  // Prefer the live health ping; fall back to deploy-derived state when the
+  // monitor has no reading yet (just deployed, or unknown).
+  const status =
+    health === 'up'
+      ? { dot: 'bg-success', label: 'live' }
+      : health === 'down'
+        ? { dot: 'bg-error', label: 'down' }
+        : isLive
+          ? { dot: 'bg-success', label: 'live' }
+          : { dot: 'bg-base-300', label: 'not deployed' }
   const hostname = url.replace(/^https?:\/\//, '')
   const initials =
     name
@@ -174,8 +199,8 @@ function WebsiteTile({ url, name, live }: { url: string; name: string; live: boo
         {hostname}
       </a>
       <span className="inline-flex flex-none items-center gap-1.5 font-mono text-xs text-muted">
-        <span className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-success' : 'bg-base-300'}`} />
-        {live ? 'live' : 'not deployed'}
+        <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
+        {status.label}
       </span>
       <a
         href={url}

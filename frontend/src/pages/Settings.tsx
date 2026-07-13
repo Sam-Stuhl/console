@@ -8,6 +8,7 @@ import {
   fetchSettings,
   putSetting,
   runBackupNow,
+  sendTestAlert,
 } from '../api/client'
 import { formatBytes, since } from '../lib/format'
 import {
@@ -228,6 +229,44 @@ export default function Settings() {
 
         <BackupPanel />
           </CollapsibleSection>
+
+          <CollapsibleSection id="alerts" title="alerts">
+            <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
+              The console pushes a notification when an app stops answering its
+              health check or comes back, and when a deploy fails, to an{' '}
+              <UI>ntfy</UI> topic you subscribe to on your phone.
+            </p>
+            <Steps
+              title="set up ntfy"
+              items={[
+                <>
+                  Install the <UI>ntfy</UI> app (iOS or Android), or open{' '}
+                  <Code>ntfy.sh</Code> in a browser.
+                </>,
+                <>
+                  Pick a hard-to-guess topic name (anyone who knows it can read
+                  your alerts) and subscribe to it in the app.
+                </>,
+                <>Paste that topic below and send a test.</>,
+              ]}
+              link={{ href: 'https://ntfy.sh', label: 'open ntfy.sh' }}
+            />
+            <SettingField
+              keyName="ntfy_topic"
+              label="topic"
+              placeholder="e.g. samstuhl-console-7c2f"
+              isSet={isSet('ntfy_topic')}
+              secret={false}
+            />
+            <SettingField
+              keyName="ntfy_server"
+              label="server"
+              placeholder="https://ntfy.sh (default)"
+              isSet={isSet('ntfy_server')}
+              secret={false}
+            />
+            <AlertTest disabled={!isSet('ntfy_topic')} />
+          </CollapsibleSection>
         </div>
 
         <aside className="sticky top-20 hidden w-44 shrink-0 lg:block">
@@ -355,6 +394,32 @@ function PassphraseField() {
           </div>
           {actionError && <p className="font-mono text-xs text-error">{actionError}</p>}
         </>
+      )}
+    </div>
+  )
+}
+
+function AlertTest({ disabled }: { disabled: boolean }) {
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const test = useMutation({
+    mutationFn: sendTestAlert,
+    onSuccess: () => setResult({ ok: true, text: 'sent — check your phone' }),
+    onError: (err: Error) => setResult({ ok: false, text: err.message }),
+  })
+  return (
+    <div className="flex items-center gap-3 pt-1">
+      <button
+        type="button"
+        disabled={disabled || test.isPending}
+        onClick={() => test.mutate()}
+        className="rounded-field border border-base-300 px-3 py-1.5 font-mono text-xs text-muted transition-colors duration-150 hover:border-primary/50 hover:text-primary disabled:opacity-40"
+      >
+        {test.isPending ? 'sending…' : 'send test'}
+      </button>
+      {result && (
+        <span className={`font-mono text-xs ${result.ok ? 'text-faint' : 'text-error'}`}>
+          {result.text}
+        </span>
       )}
     </div>
   )
