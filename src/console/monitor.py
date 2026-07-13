@@ -15,7 +15,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import alerts, config
+from console import alerts, config, credentials
 from console.db.models import Deployment, Project, ProjectHealth, utcnow
 from console.db.session import SessionLocal
 from console.deploy import plan
@@ -109,5 +109,8 @@ async def monitor_loop() -> None:
         try:
             async with SessionLocal() as session:
                 await check_once(session)
+                # Credential-expiry warnings dedupe by date, so running them on
+                # the same tick is cheap and never spams.
+                await credentials.check_expiries(session)
         except Exception:
             logger.exception("monitor sweep failed; will retry next interval")

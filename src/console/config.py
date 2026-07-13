@@ -58,6 +58,9 @@ MONITOR_TIMEOUT = 5  # per-check HTTP timeout
 MONITOR_FAIL_THRESHOLD = 2  # consecutive failures before alerting (anti-flap)
 NTFY_DEFAULT_SERVER = "https://ntfy.sh"
 
+# Credential expiry: warn this many days before a tracked token lapses.
+CREDENTIAL_WARN_DAYS = 14
+
 # Reaper timeouts for stuck deployments, in seconds
 REAPER_INTERVAL = 60
 BUILD_TIMEOUT = 30 * 60
