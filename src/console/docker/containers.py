@@ -104,6 +104,17 @@ async def find_project_container(project_id: str):
     return live[0] if live else None
 
 
+async def list_project_containers(project_id: str, include_stopped: bool = False):
+    """Containers the deploy engine created for this project. include_stopped is
+    needed by app controls, since `start` acts on a container that is not
+    running and so would be invisible to find_project_container."""
+    return await run(
+        get_client().containers.list,
+        all=include_stopped,
+        filters={"label": f"console.project={project_id}"},
+    )
+
+
 async def get_container(container_id: str) -> dict:
     container = await run(get_client().containers.get, container_id)
     return shape_detail(container.attrs)

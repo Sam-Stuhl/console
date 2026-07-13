@@ -12,6 +12,7 @@ from sqlalchemy import select
 from console.api.backups import router as backups_router
 from console.api.commands import router as commands_router
 from console.api.containers import router as containers_router
+from console.api.controls import router as controls_router
 from console.api.deployments import router as deployments_router
 from console.api.hooks import router as hooks_router
 from console.api.projects import router as projects_router
@@ -76,6 +77,7 @@ app = FastAPI(title="console", lifespan=lifespan)
 app.include_router(backups_router)
 app.include_router(commands_router)
 app.include_router(containers_router)
+app.include_router(controls_router)
 app.include_router(deployments_router)
 app.include_router(hooks_router)
 app.include_router(projects_router)
