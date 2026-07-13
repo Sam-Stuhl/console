@@ -1,11 +1,22 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { controlApp, fetchProjectContainer, type ControlAction } from '../api/client'
+import { ControlButton, RestartIcon, StartIcon, StopIcon } from './ControlButton'
+
+const LABEL: Record<string, string> = {
+  running: 'running',
+  exited: 'stopped',
+  created: 'created',
+  restarting: 'restarting',
+  paused: 'paused',
+  absent: 'no container',
+}
 
 const DOT: Record<string, string> = {
   running: 'bg-success',
-  exited: 'bg-warning',
   restarting: 'bg-warning motion-safe:animate-pulse',
+  exited: 'bg-warning',
+  paused: 'bg-warning',
 }
 
 export default function ControlsSection({ projectId }: { projectId: string }) {
@@ -13,7 +24,7 @@ export default function ControlsSection({ projectId }: { projectId: string }) {
   const [confirmingStop, setConfirmingStop] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data } = useQuery({
     queryKey: ['project-container', projectId],
     queryFn: () => fetchProjectContainer(projectId),
     refetchInterval: 5000,
@@ -30,81 +41,71 @@ export default function ControlsSection({ projectId }: { projectId: string }) {
     onError: (err: Error) => setActionError(err.message),
   })
 
-  if (isLoading) return <span className="skeleton h-6 w-64" />
+  const state = data?.state
+  if (!state) return null // keep the header clean while the state loads
 
-  const state = data?.state ?? 'absent'
-  const running = state === 'running'
   const pending = control.isPending
-
-  if (state === 'absent') {
-    return (
-      <p className="font-mono text-xs text-faint">
-        no container yet. it appears once a deploy goes live.
-      </p>
-    )
-  }
+  const startable = state === 'exited' || state === 'created' || state === 'paused'
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-4 font-mono text-xs">
-        <span className="inline-flex items-center gap-2">
+    <div className="flex flex-col items-end gap-1.5">
+      <div className="flex flex-wrap items-center justify-end gap-2.5">
+        <span className="inline-flex items-center gap-1.5 font-mono text-xs">
           <span className={`h-1.5 w-1.5 rounded-full ${DOT[state] ?? 'bg-base-300'}`} />
-          <span className={running ? '' : 'text-muted'}>{state}</span>
+          <span className={state === 'running' ? '' : 'text-muted'}>
+            {LABEL[state] ?? state}
+          </span>
         </span>
 
-        {running ? (
+        {state === 'running' && (
           <>
-            <button
-              type="button"
+            <ControlButton
+              tone="accent"
+              icon={RestartIcon}
+              label={pending ? '…' : 'restart'}
               disabled={pending}
-              className="text-muted transition-colors duration-150 hover:text-base-content hover:underline disabled:opacity-40"
               onClick={() => control.mutate('restart')}
-            >
-              {pending ? 'working…' : 'restart'}
-            </button>
+            />
             {confirmingStop ? (
-              <span className="inline-flex items-center gap-3">
-                <button
-                  type="button"
-                  className="text-error/90 hover:text-error hover:underline"
+              <span className="inline-flex items-center gap-2">
+                <ControlButton
+                  tone="error"
+                  icon={StopIcon}
+                  label="confirm"
                   onClick={() => control.mutate('stop')}
-                >
-                  confirm stop
-                </button>
+                />
                 <button
                   type="button"
-                  className="text-muted transition-colors duration-150 hover:text-base-content"
+                  className="font-mono text-xs text-muted transition-colors duration-150 hover:text-base-content"
                   onClick={() => setConfirmingStop(false)}
                 >
-                  keep running
+                  keep
                 </button>
               </span>
             ) : (
-              <button
-                type="button"
+              <ControlButton
+                tone="error"
+                icon={StopIcon}
+                label="stop"
                 disabled={pending}
-                className="text-error/80 transition-colors duration-150 hover:text-error hover:underline disabled:opacity-40"
                 onClick={() => setConfirmingStop(true)}
-              >
-                stop
-              </button>
+              />
             )}
           </>
-        ) : (
-          <button
-            type="button"
+        )}
+
+        {startable && (
+          <ControlButton
+            tone="success"
+            icon={StartIcon}
+            label={pending ? '…' : 'start'}
             disabled={pending}
-            className="text-muted transition-colors duration-150 hover:text-base-content hover:underline disabled:opacity-40"
             onClick={() => control.mutate('start')}
-          >
-            {pending ? 'working…' : 'start'}
-          </button>
+          />
         )}
       </div>
-      {running && confirmingStop && (
-        <p className="font-mono text-xs text-faint">
-          stopping takes the site offline until you start it again.
-        </p>
+      {confirmingStop && (
+        <span className="font-mono text-[11px] text-faint">stopping takes the site offline</span>
       )}
       {actionError && <p className="font-mono text-xs text-error">{actionError}</p>}
     </div>

@@ -58,7 +58,10 @@ export default function ProjectDetail() {
         </Link>
         {project ? (
           <>
-            <h1 className="font-mono text-xl font-semibold">{project.name}</h1>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h1 className="font-mono text-xl font-semibold">{project.name}</h1>
+              {!needsSetup && id && <ControlsSection projectId={id} />}
+            </div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm sm:grid-cols-[auto_1fr_auto_1fr]">
               <dt className="font-mono text-xs leading-6 text-muted">repo</dt>
               <dd className="truncate font-mono text-xs leading-6">
@@ -107,10 +110,6 @@ export default function ProjectDetail() {
             <DeploymentsSection projectId={id} branch={project?.branch ?? 'main'} />
           )}
         </Section>
-      )}
-
-      {!needsSetup && (
-        <Section title="controls">{id && <ControlsSection projectId={id} />}</Section>
       )}
 
       {!needsSetup && (
