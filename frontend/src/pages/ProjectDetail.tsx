@@ -6,6 +6,7 @@ import SecretsSection from '../components/SecretsSection'
 import DeploymentsSection from '../components/DeploymentsSection'
 import CommandSection from '../components/CommandSection'
 import ControlsSection from '../components/ControlsSection'
+import DomainSection from '../components/DomainSection'
 import SetupSection from '../components/SetupSection'
 import AccessSection from '../components/AccessSection'
 import ConfirmButton from '../components/ConfirmButton'
@@ -100,6 +101,14 @@ export default function ProjectDetail() {
             health={project.health}
             isLive={isLive}
           />
+          {id && (
+            <DomainSection
+              projectId={id}
+              subdomain={project.subdomain}
+              currentDomain={project.domain}
+              isProtected={project.protected}
+            />
+          )}
         </Section>
       )}
 

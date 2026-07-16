@@ -5,8 +5,10 @@ import {
   fetchBackups,
   fetchCredentials,
   fetchDeployments,
+  fetchDomainsConfig,
   fetchProjects,
   fetchSettings,
+  putDomains,
   putSetting,
   runBackupNow,
   sendTestAlert,
@@ -274,32 +276,45 @@ export default function Settings() {
           <CollapsibleSection id="domains" title="domains">
             <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
               Apps serve at <Code>{'{subdomain}.{domain}'}</Code>. Every project
-              can use the primary domain out of the box; list additional domains
-              here to offer them when registering a project.
+              uses the primary domain out of the box; add more here to offer them
+              when registering a project or when changing an existing one&apos;s
+              domain. Adding a domain here only records it, so do the Cloudflare
+              setup below first.
             </p>
             <Steps
               title="add a domain (once per domain)"
               items={[
                 <>
-                  In Cloudflare, give the new domain the same one-time setup as
-                  the primary: a wildcard{' '}
-                  <Code>*.newdomain.com</Code> tunnel route to{' '}
-                  <Code>traefik:80</Code> and its DNS. The console never touches
-                  Cloudflare DNS or the tunnel.
+                  Add the domain to Cloudflare as a zone: <UI>Add a site</UI>,
+                  enter the domain, and switch its nameservers to Cloudflare at
+                  your registrar. Wait until the zone shows <UI>Active</UI>.
                 </>,
                 <>
-                  Add the domain below (comma-separated for more than one). It
-                  then appears in the project&apos;s domain picker.
+                  Route it through the same tunnel your other apps use:{' '}
+                  <UI>
+                    Zero Trust &rarr; Networks &rarr; Tunnels &rarr; your tunnel
+                    &rarr; Public Hostname &rarr; Add a public hostname
+                  </UI>
+                  .
+                </>,
+                <>
+                  Set <UI>Subdomain</UI> to <Code>*</Code>, <UI>Domain</UI> to the
+                  new domain, <UI>Type</UI> to <Code>HTTP</Code>, and{' '}
+                  <UI>URL</UI> to <Code>traefik:80</Code>, then save. The wildcard
+                  covers every app&apos;s subdomain and creates the DNS for you.
+                </>,
+                <>
+                  Add the domain below. It then appears in the project domain
+                  picker and in each project&apos;s change-domain control. The
+                  console never touches Cloudflare DNS or the tunnel itself.
                 </>,
               ]}
+              link={{
+                href: 'https://one.dash.cloudflare.com',
+                label: 'open Zero Trust',
+              }}
             />
-            <SettingField
-              keyName="domains"
-              label="extra domains"
-              placeholder="apps.example.com, blog.example.com"
-              isSet={isSet('domains')}
-              secret={false}
-            />
+            <DomainsManager />
           </CollapsibleSection>
 
           <CollapsibleSection id="credential-expiry" title="credential expiry">
@@ -320,6 +335,82 @@ export default function Settings() {
         </aside>
       </div>
     </SectionsProvider>
+  )
+}
+
+function DomainsManager() {
+  const queryClient = useQueryClient()
+  const { data } = useQuery({ queryKey: ['domains-config'], queryFn: fetchDomainsConfig })
+  const [value, setValue] = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const save = useMutation({
+    mutationFn: (next: string[]) => putDomains(next),
+    onSuccess: () => {
+      setActionError(null)
+      setValue('')
+      queryClient.invalidateQueries({ queryKey: ['domains-config'] })
+      // the create form and change-domain control read the available list
+      queryClient.invalidateQueries({ queryKey: ['domains'] })
+    },
+    onError: (err: Error) => setActionError(err.message),
+  })
+
+  if (!data) return <span className="skeleton h-8 w-full max-w-md" />
+  const extras = data.extras
+
+  return (
+    <div className="flex flex-col gap-2 pt-1">
+      <ul className="flex flex-col gap-1.5 font-mono text-xs">
+        <li className="flex items-center gap-2">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" />
+          <span className="text-base-content">{data.primary}</span>
+          <span className="rounded-sm bg-base-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-faint">
+            primary
+          </span>
+        </li>
+        {extras.map((d) => (
+          <li key={d} className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-success" />
+            <span className="text-base-content">{d}</span>
+            <button
+              type="button"
+              disabled={save.isPending}
+              onClick={() => save.mutate(extras.filter((x) => x !== d))}
+              className="text-error/80 transition-colors duration-150 hover:text-error hover:underline disabled:opacity-40"
+            >
+              remove
+            </button>
+          </li>
+        ))}
+        {extras.length === 0 && <li className="text-faint">no extra domains yet.</li>}
+      </ul>
+      <form
+        className="flex flex-wrap items-center gap-2 pt-1"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const d = value.trim()
+          if (d) save.mutate([...extras, d])
+        }}
+      >
+        <input
+          type="text"
+          value={value}
+          spellCheck={false}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="apps.example.com"
+          className="input input-sm w-80 max-w-full border-base-300 bg-base-100 font-mono text-xs"
+        />
+        <button
+          type="submit"
+          disabled={!value.trim() || save.isPending}
+          className="btn btn-primary btn-sm font-mono"
+        >
+          add
+        </button>
+      </form>
+      {actionError && <p className="font-mono text-xs text-error">{actionError}</p>}
+    </div>
   )
 }
 

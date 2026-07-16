@@ -30,7 +30,9 @@ NTFY_TOPIC = "ntfy_topic"
 NTFY_SERVER = "ntfy_server"
 # Extra base domains apps can be hosted under, comma-separated, beyond the
 # primary CONSOLE_DOMAIN. Each is a one-time manual Cloudflare setup; the console
-# only records which exist so a project can pick one.
+# only records which exist so a project can pick one. Not in KNOWN: domains are
+# not secret and are managed through the readable /api/domains, not the
+# write-only settings API, so there is a single write path.
 DOMAINS = "domains"
 
 # Everything the settings UI knows how to manage. The account id and repo are
@@ -45,7 +47,6 @@ KNOWN = frozenset(
         BACKUP_PASSPHRASE,
         NTFY_TOPIC,
         NTFY_SERVER,
-        DOMAINS,
     }
 )
 
