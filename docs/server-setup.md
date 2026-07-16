@@ -30,7 +30,7 @@ is up.
 - The domain on **Cloudflare** (DNS managed by Cloudflare).
 - This repo cloned, and a shell open in it:
   `git clone https://github.com/Sam-Stuhl/console` then `cd console`.
-- Run commands in **PowerShell** or a **WSL2 shell** — `docker` works in
+- Run commands in **PowerShell** or a **WSL2 shell**: `docker` works in
   both. Files in this repo use LF endings (enforced by `.gitattributes`),
   so cloning on Windows will not corrupt anything that runs in a container.
 
@@ -112,10 +112,10 @@ bypass Access while everything else requires your login.
 Zero Trust -> **Access -> Applications**. Create **two** self-hosted apps
 (Cloudflare evaluates the more specific path first):
 
-- **App A, the webhooks** — hostname `console.samstuhl.com`, path `hooks`.
+- **App A, the webhooks**: hostname `console.samstuhl.com`, path `hooks`.
   One policy, action **Bypass**, include **Everyone**. (Safe: the console
   rejects any call whose OIDC token is not owned by Sam-Stuhl.)
-- **App B, the console UI** — hostname `console.samstuhl.com`, no path.
+- **App B, the console UI**: hostname `console.samstuhl.com`, no path.
   One policy, action **Allow**, include your email.
 
 Every other app subdomain is public by default (the wildcard route sends it
