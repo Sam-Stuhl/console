@@ -1,10 +1,15 @@
+from datetime import datetime, timedelta
+
 from console import config
+from console.db.models import Deployment
 
 PROJECT = {
     "name": "notion-sync",
     "repo": "sam-stuhl/notion-sync",
     "subdomain": "notion-sync",
 }
+
+NOW = datetime(2026, 7, 16, 12, 0, 0)
 
 
 async def create(client, **overrides):
@@ -43,6 +48,49 @@ async def test_duplicates_conflict(client):
         response = await create(client, **overrides)
         assert response.status_code == 409, overrides
         assert "already exists" in response.json()["detail"]
+
+
+async def _add_deployment(db, project_id, sha, status, minutes_ago):
+    async with db() as session:
+        session.add(
+            Deployment(
+                project_id=project_id,
+                sha=sha,
+                status=status,
+                created_at=NOW - timedelta(minutes=minutes_ago),
+            )
+        )
+        await session.commit()
+
+
+async def test_list_status_no_deployments(client):
+    await create(client)
+    p = (await client.get("/api/projects")).json()[0]
+    assert p["deploy_status"] is None
+    assert p["is_live"] is False
+
+
+async def test_list_status_latest_and_is_live(client, db):
+    pid = (await create(client)).json()["id"]
+    # An older live deploy, then a newer in-flight one on top of it.
+    await _add_deployment(db, pid, "old", "live", minutes_ago=10)
+    await _add_deployment(db, pid, "new", "deploying", minutes_ago=1)
+
+    p = {x["id"]: x for x in (await client.get("/api/projects")).json()}[pid]
+    assert p["deploy_status"] == "deploying"  # newest wins
+    assert p["is_live"] is True  # a live deployment still exists
+
+    # get_one carries the same fields
+    one = (await client.get(f"/api/projects/{pid}")).json()
+    assert one["deploy_status"] == "deploying" and one["is_live"] is True
+
+
+async def test_list_status_failed_only(client, db):
+    pid = (await create(client)).json()["id"]
+    await _add_deployment(db, pid, "boom", "failed", minutes_ago=1)
+    p = {x["id"]: x for x in (await client.get("/api/projects")).json()}[pid]
+    assert p["deploy_status"] == "failed"
+    assert p["is_live"] is False
 
 
 async def test_get_and_delete(client):

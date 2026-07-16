@@ -3,12 +3,15 @@ import { Link, useNavigate } from 'react-router-dom'
 import { fetchProjects } from '../api/client'
 import { localDay } from '../lib/format'
 import ProjectIcon from '../components/ProjectIcon'
+import ProjectStatusBadge from '../components/ProjectStatusBadge'
 
 export default function ProjectList() {
   const navigate = useNavigate()
   const { data: projects, isError } = useQuery({
     queryKey: ['projects'],
     queryFn: fetchProjects,
+    // Poll so an in-flight deploy's status animates and settles without a reload.
+    refetchInterval: 5000,
   })
 
   if (isError) {
@@ -46,6 +49,7 @@ export default function ProjectList() {
             <thead>
               <tr className="border-b border-base-300 text-left font-mono text-xs text-muted">
                 <th className="py-2 pr-4 font-normal">name</th>
+                <th className="py-2 pr-4 font-normal">status</th>
                 <th className="py-2 pr-4 font-normal">repo</th>
                 <th className="py-2 pr-4 font-normal">subdomain</th>
                 <th className="py-2 pr-4 font-normal">branch</th>
@@ -68,6 +72,9 @@ export default function ProjectList() {
                       <ProjectIcon project={p} size={22} rounded="rounded-md" />
                       {p.name}
                     </Link>
+                  </td>
+                  <td className="py-2.5 pr-4">
+                    <ProjectStatusBadge project={p} />
                   </td>
                   <td className="py-2.5 pr-4 font-mono text-xs text-muted">{p.repo}</td>
                   <td className="py-2.5 pr-4 font-mono text-xs text-muted">{p.subdomain}</td>

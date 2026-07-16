@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from console import appicon, cloudflare, config, domains
-from console.db.models import Project, ProjectHealth
+from console.db.models import Deployment, Project, ProjectHealth
 from console.db.session import get_session
 from console.schema.console_toml import validate_subdomain_format
 from console.starters import starter_files
@@ -41,6 +41,8 @@ class ProjectOut(BaseModel):
     health: str  # live liveness from the monitor: up | down | unknown
     has_icon: bool  # the app's favicon has been fetched (else the UI shows initials)
     icon_fetched_at: datetime | None  # doubles as a cache-buster for the icon URL
+    deploy_status: str | None  # latest deployment's status (queued/building/deploying/live/failed/…)
+    is_live: bool  # a deployment is currently live (serving), independent of the monitor ping
 
 
 class AccessUpdate(BaseModel):
@@ -61,7 +63,12 @@ class DomainChangeResult(BaseModel):
     note: str | None = None  # what happened to the Access gate, if anything
 
 
-def _out(project: Project, health: str = "unknown") -> ProjectOut:
+def _out(
+    project: Project,
+    health: str = "unknown",
+    deploy_status: str | None = None,
+    is_live: bool = False,
+) -> ProjectOut:
     domain = domains.of(project)
     return ProjectOut(
         id=project.id,
@@ -77,7 +84,27 @@ def _out(project: Project, health: str = "unknown") -> ProjectOut:
         health=health,
         has_icon=project.icon_data is not None,
         icon_fetched_at=project.icon_fetched_at,
+        deploy_status=deploy_status,
+        is_live=is_live,
     )
+
+
+async def _deploy_state(session: AsyncSession) -> tuple[dict[str, str], set[str]]:
+    """Per project: the latest deployment's status, and which have a live one.
+    One pass over deployment rows, newest first, so the first status seen per
+    project is its latest."""
+    rows = await session.execute(
+        select(Deployment.project_id, Deployment.status).order_by(
+            Deployment.created_at.desc()
+        )
+    )
+    latest: dict[str, str] = {}
+    live: set[str] = set()
+    for project_id, status in rows:
+        latest.setdefault(project_id, status)
+        if status == "live":
+            live.add(project_id)
+    return latest, live
 
 
 async def get_project(project_id: str, session: AsyncSession) -> Project:
@@ -92,7 +119,11 @@ async def list_projects(session: AsyncSession = Depends(get_session)) -> list[Pr
     projects = (await session.scalars(select(Project).order_by(Project.created_at))).all()
     health_rows = await session.scalars(select(ProjectHealth))
     health = {h.project_id: h.state for h in health_rows}
-    return [_out(p, health.get(p.id, "unknown")) for p in projects]
+    latest, live = await _deploy_state(session)
+    return [
+        _out(p, health.get(p.id, "unknown"), latest.get(p.id), p.id in live)
+        for p in projects
+    ]
 
 
 @router.post("", status_code=201)
@@ -143,7 +174,13 @@ async def get_one(
 ) -> ProjectOut:
     project = await get_project(project_id, session)
     health = await session.get(ProjectHealth, project_id)
-    return _out(project, health.state if health else "unknown")
+    latest, live = await _deploy_state(session)
+    return _out(
+        project,
+        health.state if health else "unknown",
+        latest.get(project_id),
+        project_id in live,
+    )
 
 
 @router.put("/{project_id}/access")

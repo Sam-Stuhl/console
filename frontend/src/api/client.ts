@@ -48,6 +48,8 @@ export interface Project {
   domain: string // base domain it serves under
   has_icon: boolean // the app's favicon has been fetched (else show initials)
   icon_fetched_at: string | null // cache-buster for the icon URL
+  deploy_status: string | null // latest deployment status (queued/building/deploying/live/failed/…)
+  is_live: boolean // a deployment is currently serving, independent of the monitor ping
 }
 
 // The app's fetched favicon, served from the console. Includes the fetch time
