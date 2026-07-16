@@ -1,0 +1,127 @@
+# A manual "Run workflow" button for ops on the box, from a phone or from `gh`.
+# Runs on the same self-hosted runner as build.yml's deploy job.
+#
+# Why it exists: the SSH path (docs/remote-access.md) rides the cloudflared
+# CONTAINER, so Docker down means tunnel down means no shell. The runner is a
+# native Windows service that polls GitHub outbound, so it keeps working when
+# Docker is unhealthy. Its real job is repin-console: rolling the console back
+# to a known-good image when a bad one restart-loops it. That is what makes
+# build.yml's "never locks you out, because remote docker can always re-pin the
+# last good tag" actually true.
+#
+# What it CANNOT do: bring Docker back after a reboot with nobody signed in.
+# Docker Desktop is a GUI app tied to an interactive session and the runner is a
+# service, so start-docker below is best effort only. The fix for that case is
+# prevention (Docker Desktop "start on login" + Windows auto-login), not a button.
+#
+# PUBLIC REPO, SO THE RUN LOGS ARE A PUBLIC WEB PAGE. Only accounts with write
+# access can dispatch this, so nobody else can press it, but anyone can read what
+# it printed. GitHub masks Actions secrets in logs; it cannot mask ours, because
+# app secrets live encrypted in the console's DB and are injected as container
+# env, so GitHub has never seen them and has nothing to match against. Hence:
+# a fixed action menu instead of a free-form command box, and scalar-only output.
+# `docker inspect -f '{{.State.Status}}' console` is fine. A bare `docker inspect`,
+# `docker logs`, `docker ps`, or anything echoing an env var is NEVER acceptable
+# here: one such line would publish the Neon DATABASE_URL permanently.
+
+name: server ops
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do on the box
+        type: choice
+        required: true
+        default: status
+        options:
+          - status
+          - restart-console
+          - repin-console
+          - compose-up
+          - start-docker
+      tag:
+        description: "repin-console only: image tag to pin, e.g. 1a2b3c4 (short sha from a build run)"
+        required: false
+        default: ""
+
+# This job drives Docker on the box and never calls the GitHub API. The runner's
+# clone pulls a public repo over https using its own git config, not this token.
+permissions: {}
+
+jobs:
+  ops:
+    runs-on: [self-hosted, Windows]
+    steps:
+      - name: Run ${{ inputs.action }}
+        shell: powershell
+        working-directory: C:\Users\Sam\servers\console
+        # Inputs are passed as env, never interpolated into the script body.
+        # `${{ inputs.tag }}` inline would let the tag field inject PowerShell.
+        env:
+          ACTION: ${{ inputs.action }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          function Invoke-Checked($what) {
+            # Native commands do not throw on non-zero, so check explicitly.
+            if ($LASTEXITCODE -ne 0) { throw "$what failed (exit $LASTEXITCODE)" }
+          }
+
+          switch ($env:ACTION) {
+
+            "status" {
+              # Nothing to do: the scalar status below is the whole point.
+            }
+
+            "restart-console" {
+              docker restart console
+              Invoke-Checked "docker restart console"
+            }
+
+            "repin-console" {
+              if (-not $env:TAG) {
+                throw "repin-console needs a tag. Take a short sha from a green 'build console image' run."
+              }
+              if ($env:TAG -notmatch '^[A-Za-z0-9._-]+$') {
+                throw "tag '$($env:TAG)' is not a valid image tag."
+              }
+              # compose.prod.yaml reads ${CONSOLE_IMAGE:-...:latest}. This pin lasts
+              # only for this step, so the next push to main puts the console back on
+              # :latest. It is how you get the console back, not a state change: fix
+              # forward or revert the commit afterwards.
+              $env:CONSOLE_IMAGE = "ghcr.io/sam-stuhl/console:$($env:TAG)"
+              docker compose -f compose.prod.yaml up -d console
+              Invoke-Checked "docker compose up -d console"
+            }
+
+            "compose-up" {
+              git pull --ff-only
+              Invoke-Checked "git pull"
+              docker compose -f compose.prod.yaml up -d
+              Invoke-Checked "docker compose up -d"
+            }
+
+            "start-docker" {
+              # Best effort. Works if Docker Desktop crashed or was quit while Sam is
+              # still signed in. Does nothing useful if the box rebooted and nobody
+              # signed in, because a service cannot start a GUI app into a session
+              # that does not exist. See the header.
+              Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+              Write-Host "asked Docker Desktop to start; waiting up to 120s for the engine"
+              $deadline = (Get-Date).AddSeconds(120)
+              do {
+                Start-Sleep -Seconds 5
+                docker info *> $null
+                $up = ($LASTEXITCODE -eq 0)
+              } while (-not $up -and (Get-Date) -lt $deadline)
+              if (-not $up) { throw "engine still not answering after 120s (nobody signed in?)" }
+            }
+          }
+
+          # Scalar only. See the header before adding anything to this.
+          $state = (docker inspect -f '{{.State.Status}}' console 2>$null)
+          if (-not $state) { $state = "absent (or the engine is not answering)" }
+          Write-Host "console: $state"
+          exit 0
