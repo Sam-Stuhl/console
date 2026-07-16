@@ -18,6 +18,7 @@ import {
 import { formatBytes, since } from '../lib/format'
 import {
   CollapsibleSection,
+  ExpandCollapseAll,
   SectionsProvider,
   TableOfContents,
 } from '../components/Sections'
@@ -57,7 +58,7 @@ export default function Settings() {
   }
 
   return (
-    <SectionsProvider>
+    <SectionsProvider storageKey="console:settings-sections">
       <div className="flex items-start gap-10">
         <div className="flex min-w-0 max-w-2xl flex-1 flex-col gap-6">
           <div className="flex flex-col gap-2">
@@ -328,9 +329,12 @@ export default function Settings() {
         </div>
 
         <aside className="sticky top-20 hidden w-44 shrink-0 lg:block">
-          <p className="mb-2 font-mono text-[11px] uppercase tracking-wide text-faint">
-            on this page
-          </p>
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <p className="font-mono text-[11px] uppercase tracking-wide text-faint">
+              on this page
+            </p>
+            <ExpandCollapseAll />
+          </div>
           <TableOfContents />
         </aside>
       </div>

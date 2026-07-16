@@ -27,6 +27,7 @@ interface SectionsContext {
   unregister: (id: string) => void
   setOpen: (id: string, open: boolean) => void
   toggle: (id: string) => void
+  setAll: (open: boolean) => void
   activeId: string | null
   setActiveId: (id: string | null) => void
 }
@@ -39,10 +40,35 @@ function useSections(): SectionsContext {
   return ctx
 }
 
-export function SectionsProvider({ children }: { children: ReactNode }) {
+export function SectionsProvider({
+  children,
+  storageKey,
+}: {
+  children: ReactNode
+  // When set, the open/closed state of each section is remembered under this
+  // key in localStorage, so it survives reloads and navigation.
+  storageKey?: string
+}) {
   const [entries, setEntries] = useState<Entry[]>([])
-  const [openMap, setOpenMap] = useState<Record<string, boolean>>({})
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>(() => {
+    if (!storageKey) return {}
+    try {
+      const raw = localStorage.getItem(storageKey)
+      return raw ? (JSON.parse(raw) as Record<string, boolean>) : {}
+    } catch {
+      return {}
+    }
+  })
   const [activeId, setActiveId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!storageKey) return
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(openMap))
+    } catch {
+      // storage unavailable (private mode, quota); state just won't persist
+    }
+  }, [storageKey, openMap])
 
   const register = useCallback((id: string, title: string, defaultOpen: boolean) => {
     setEntries((prev) => (prev.some((e) => e.id === id) ? prev : [...prev, { id, title }]))
@@ -59,13 +85,47 @@ export function SectionsProvider({ children }: { children: ReactNode }) {
     (id: string) => setOpenMap((prev) => ({ ...prev, [id]: !prev[id] })),
     [],
   )
+  const setAll = useCallback((open: boolean) => {
+    // Every mounted section has its id in openMap (register seeds it), so
+    // flipping the existing keys covers them all.
+    setOpenMap((prev) => Object.fromEntries(Object.keys(prev).map((id) => [id, open])))
+  }, [])
 
   return (
     <Ctx.Provider
-      value={{ entries, openMap, register, unregister, setOpen, toggle, activeId, setActiveId }}
+      value={{
+        entries,
+        openMap,
+        register,
+        unregister,
+        setOpen,
+        toggle,
+        setAll,
+        activeId,
+        setActiveId,
+      }}
     >
       {children}
     </Ctx.Provider>
+  )
+}
+
+/**
+ * A single toggle that expands every section when any is collapsed, and
+ * collapses them all otherwise. Render it anywhere inside <SectionsProvider>.
+ */
+export function ExpandCollapseAll({ className = '' }: { className?: string }) {
+  const { entries, openMap, setAll } = useSections()
+  if (entries.length === 0) return null
+  const anyOpen = entries.some((e) => openMap[e.id])
+  return (
+    <button
+      type="button"
+      onClick={() => setAll(!anyOpen)}
+      className={`font-mono text-[11px] text-muted transition-colors duration-150 hover:text-base-content ${className}`}
+    >
+      {anyOpen ? 'collapse all' : 'expand all'}
+    </button>
   )
 }
 
