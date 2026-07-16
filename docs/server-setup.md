@@ -88,11 +88,21 @@ The tunnel is the only way in; nothing is exposed on the PC or your LAN.
    - `*.samstuhl.com` (a wildcard) -> every future app becomes reachable with
      no further tunnel changes: register it in the console, deploy, and
      Traefik routes its subdomain by the label the deploy engine sets. The
-     console never touches Cloudflare. Cloudflare matches the most specific
-     hostname first, so the explicit `console` route and the wildcard coexist.
+     console never touches Cloudflare.
      If your plan refuses a proxied wildcard DNS record, skip the wildcard and
      add each app's hostname here when you register it (a fresh subdomain
      never conflicts).
+
+   **Keep the wildcard LAST in the hostname list.** cloudflared evaluates these
+   rules top to bottom and the first match wins; it does *not* prefer the more
+   specific hostname. So `*.samstuhl.com` swallows every hostname listed below
+   it, and the explicit `console` route only works because it sits above the
+   wildcard. Any hostname you add later lands at the bottom, under the wildcard,
+   and is silently dead on arrival: the wildcard sends it to Traefik, which has
+   no router for it and returns `404 page not found`. There is no reorder
+   control, so the fix is to delete the wildcard and re-add it, which appends it
+   to the end again. (Learned the hard way adding the SSH route on 2026-07-16;
+   see remote-access.md.)
 
    The "Create a tunnel" wizard may not let you add routes until a connector
    is actually connected. If so, finish creating the tunnel, put its token in

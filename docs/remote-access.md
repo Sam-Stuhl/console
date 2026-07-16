@@ -91,6 +91,17 @@ Hostname -> Add a public hostname**:
 
 - Subdomain `ssh`, Domain `samstuhl.com`, no path
 - **Service URL** `ssh://host.docker.internal:22`
+- **Then move `*.samstuhl.com` back to the bottom of the list.** See below.
+
+**The wildcard will eat this route if you let it.** cloudflared matches ingress
+rules top to bottom, first match wins, and does *not* prefer the more specific
+hostname. A new hostname is appended to the end, which puts it *under*
+`*.samstuhl.com`, so it never matches its own rule: the wildcard hands it to
+Traefik, which has no router for it and 404s. The dashboard has no reorder
+control, so delete the `*.samstuhl.com` hostname and re-add it (`*` /
+`samstuhl.com` / `http://traefik:80`), which appends it after the SSH rule. The
+list must end up console, ssh, then the wildcard last. `console.samstuhl.com`
+keeps working throughout, since it has its own rule above the wildcard.
 
 The dashboard has a single **Service URL** field where the scheme *is* the
 service type. Cloudflare's own docs and most screenshots still show the older
@@ -135,6 +146,26 @@ That last one must redirect to `cloudflareaccess.com/cdn-cgi/access/login/ssh.sa
 A redirect means the Access app is live and the route is **not** open to the
 internet. Anything else (a timeout, a 502, no redirect) means the gate is not
 on, and you should fix that before starting sshd in Part 2.
+
+Then run `ssh homebox`. It authenticates in a browser once, caches the token,
+and **fails**. That is correct. How it fails is the whole point:
+
+`cloudflared` reports `websocket: bad handshake` for **any** non-101 response,
+so the ssh-level error is identical whether the route is wrong or the origin is
+simply absent. It tells you nothing. Read the HTTP status underneath instead:
+
+```
+TOK=$(cat ~/.cloudflared/ssh.samstuhl.com-*-token)
+curl -s -o /dev/null -w "%{http_code}\n" -H "Cookie: CF_Authorization=$TOK" https://ssh.samstuhl.com/
+curl -s https://a-hostname-that-does-not-exist.samstuhl.com/    # the wildcard's answer, for comparison
+```
+
+- **`404 page not found`, byte-identical to the nonexistent hostname**: the
+  wildcard is swallowing the SSH route. Re-add the wildcard so it sits last.
+- **`502`**: correct. The rule matched, the tunnel tried `host.docker.internal:22`,
+  and nothing is listening because sshd does not exist yet. This is as far as
+  Part 1 can go, and it means every hop before the box is proven.
+- **`302` to a login**: the token expired. Rerun `ssh homebox` to re-auth.
 
 ## Part 2: at the Windows box
 
