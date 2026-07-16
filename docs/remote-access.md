@@ -89,12 +89,23 @@ the box is never touched.
 **Route it.** Zero Trust -> **Networks -> Tunnels** -> your tunnel -> **Public
 Hostname -> Add a public hostname**:
 
-- Subdomain `ssh`, Domain `samstuhl.com`
-- Type **SSH**, URL `host.docker.internal:22`
+- Subdomain `ssh`, Domain `samstuhl.com`, no path
+- **Service URL** `ssh://host.docker.internal:22`
 
-`host.docker.internal` is how a container reaches the machine hosting it. The
-cloudflared container uses it to hop back out to the Windows host's SSH server.
-Docker Desktop provides that name automatically.
+The dashboard has a single **Service URL** field where the scheme *is* the
+service type. Cloudflare's own docs and most screenshots still show the older
+two-field form (a **Type** dropdown set to **SSH**, plus a bare `host:22`);
+`ssh://host:22` is the same thing expressed in one field. `tcp://` works too,
+but `ssh://` is the direct equivalent of the documented setup. (Verified against
+the live dashboard 2026-07-16: `ssh://` accepted.)
+
+`host.docker.internal`, **not `localhost`**. This is worth dwelling on, because
+Cloudflare's docs say `localhost:22` and copying that will fail here. They assume
+cloudflared is installed on the SSH machine itself. Ours runs in a container,
+where `localhost` means the cloudflared container, which has no SSH server. So
+this line is the tunnel deliberately hopping back out of Docker to the Windows
+host, which is also why nothing needs publishing to the LAN. Docker Desktop
+provides that name automatically.
 
 **Gate it.** Zero Trust -> **Access -> Applications** -> **Add an application**
 -> **Self-hosted**:
@@ -108,6 +119,22 @@ Docker Desktop provides that name automatically.
 the whole internet, gated only by your key. The Access app is what keeps the
 tunnel-only posture intact. It is also the kill switch: delete the policy and
 every route in dies instantly, from anywhere, without touching the box.
+
+### Verify Part 1
+
+`ssh homebox` cannot work yet, but three things are checkable now, and the third
+is the one that matters:
+
+```
+ssh -G homebox | grep -E "hostname|user|proxycommand"   # config resolves
+dig +short ssh.samstuhl.com                             # Cloudflare IPs, same as the console's
+curl -s -o /dev/null -D - https://ssh.samstuhl.com | grep -i location
+```
+
+That last one must redirect to `cloudflareaccess.com/cdn-cgi/access/login/ssh.samstuhl.com`.
+A redirect means the Access app is live and the route is **not** open to the
+internet. Anything else (a timeout, a 502, no redirect) means the gate is not
+on, and you should fix that before starting sshd in Part 2.
 
 ## Part 2: at the Windows box
 
