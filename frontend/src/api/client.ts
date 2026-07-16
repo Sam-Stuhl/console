@@ -46,7 +46,17 @@ export interface Project {
   access_emails: string[]
   health: string // live liveness from the monitor: up | down | unknown
   domain: string // base domain it serves under
+  has_icon: boolean // the app's favicon has been fetched (else show initials)
+  icon_fetched_at: string | null // cache-buster for the icon URL
 }
+
+// The app's fetched favicon, served from the console. Includes the fetch time
+// as a cache-buster so a refreshed icon shows without a hard reload.
+export const projectIconUrl = (p: Project) =>
+  `/api/projects/${p.id}/icon?v=${encodeURIComponent(p.icon_fetched_at ?? '')}`
+
+export const refreshProjectIcon = (id: string) =>
+  request<{ fetched: boolean }>(`/api/projects/${id}/icon/refresh`, jsonInit('POST'))
 
 export interface SecretMeta {
   key: string

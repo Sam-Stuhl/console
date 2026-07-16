@@ -1,7 +1,15 @@
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteProject, fetchDeployments, fetchProject } from '../api/client'
+import type { Project } from '../api/client'
+import {
+  deleteProject,
+  fetchDeployments,
+  fetchProject,
+  refreshProjectIcon,
+} from '../api/client'
 import { localDay } from '../lib/format'
+import ProjectIcon from '../components/ProjectIcon'
 import SecretsSection from '../components/SecretsSection'
 import DeploymentsSection from '../components/DeploymentsSection'
 import CommandSection from '../components/CommandSection'
@@ -95,12 +103,8 @@ export default function ProjectDetail() {
 
       {project && (
         <Section title="website">
-          <WebsiteTile
-            url={project.url}
-            name={project.name}
-            health={project.health}
-            isLive={isLive}
-          />
+          <WebsiteTile project={project} isLive={isLive} />
+          {id && <IconRefresh projectId={id} />}
           {id && (
             <DomainSection
               projectId={id}
@@ -155,6 +159,34 @@ export default function ProjectDetail() {
   )
 }
 
+function IconRefresh({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient()
+  const [note, setNote] = useState<string | null>(null)
+  const refresh = useMutation({
+    mutationFn: () => refreshProjectIcon(projectId),
+    onSuccess: (res) => {
+      setNote(res.fetched ? 'icon updated from the app' : 'no favicon found on the app')
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+    onError: (err: Error) => setNote(err.message),
+  })
+  return (
+    <div className="flex items-center gap-3 font-mono text-xs">
+      <button
+        type="button"
+        disabled={refresh.isPending}
+        onClick={() => refresh.mutate()}
+        className="text-muted transition-colors duration-150 hover:text-base-content hover:underline disabled:opacity-40"
+      >
+        {refresh.isPending ? 'fetching…' : 'refresh icon'}
+      </button>
+      <span className="text-faint">pulls the app&apos;s favicon from its container</span>
+      {note && <span className="text-faint">— {note}</span>}
+    </div>
+  )
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-3 border-t border-base-300 pt-4">
@@ -164,17 +196,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function WebsiteTile({
-  url,
-  name,
-  health,
-  isLive,
-}: {
-  url: string
-  name: string
-  health: string
-  isLive: boolean
-}) {
+function WebsiteTile({ project, isLive }: { project: Project; isLive: boolean }) {
+  const { url, health } = project
   // Prefer the live health ping; fall back to deploy-derived state when the
   // monitor has no reading yet (just deployed, or unknown).
   const status =
@@ -186,19 +209,10 @@ function WebsiteTile({
           ? { dot: 'bg-success', label: 'live' }
           : { dot: 'bg-base-300', label: 'not deployed' }
   const hostname = url.replace(/^https?:\/\//, '')
-  const initials =
-    name
-      .split(/[-_ ]/)
-      .map((word) => word[0])
-      .join('')
-      .slice(0, 2)
-      .toUpperCase() || name.slice(0, 2).toUpperCase()
 
   return (
     <div className="flex max-w-2xl items-center gap-3 rounded-box border border-base-300 bg-base-100 px-3.5 py-3">
-      <span className="flex h-5 w-5 flex-none items-center justify-center rounded-sm bg-primary font-mono text-[10px] font-bold text-primary-content">
-        {initials}
-      </span>
+      <ProjectIcon project={project} size={20} />
       <a
         href={url}
         target="_blank"

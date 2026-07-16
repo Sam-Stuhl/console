@@ -19,7 +19,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import alerts, config, domains, settings_store
+from console import alerts, appicon, config, domains, settings_store
 from console.db.models import Deployment, Project, Secret, utcnow
 from console.db.session import SessionLocal
 from console.deploy import plan
@@ -81,6 +81,18 @@ async def run_deploy(deployment_id: str) -> None:
                 await _fail(session, deployment, str(exc))
             except Exception as exc:  # tasks must never die silently
                 await _fail(session, deployment, f"internal error: {exc!r}")
+            else:
+                await _refresh_icon(session, project)
+
+
+async def _refresh_icon(session: AsyncSession, project: Project) -> None:
+    """Best effort after a live deploy: pull the app's favicon from its now
+    running container. Never lets an icon hiccup affect the deploy result."""
+    try:
+        if await appicon.fetch_and_store(session, project):
+            await session.commit()
+    except Exception:
+        logger.warning("icon refresh failed for %s", project.name, exc_info=True)
 
 
 async def _deploy(

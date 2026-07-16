@@ -2,12 +2,12 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import cloudflare, config, domains
+from console import appicon, cloudflare, config, domains
 from console.db.models import Project, ProjectHealth
 from console.db.session import get_session
 from console.schema.console_toml import validate_subdomain_format
@@ -39,6 +39,8 @@ class ProjectOut(BaseModel):
     protected: bool  # Cloudflare Access login is in front of it
     access_emails: list[str]
     health: str  # live liveness from the monitor: up | down | unknown
+    has_icon: bool  # the app's favicon has been fetched (else the UI shows initials)
+    icon_fetched_at: datetime | None  # doubles as a cache-buster for the icon URL
 
 
 class AccessUpdate(BaseModel):
@@ -73,6 +75,8 @@ def _out(project: Project, health: str = "unknown") -> ProjectOut:
         protected=project.protected,
         access_emails=project.access_emails.split(",") if project.access_emails else [],
         health=health,
+        has_icon=project.icon_data is not None,
+        icon_fetched_at=project.icon_fetched_at,
     )
 
 
@@ -261,6 +265,39 @@ async def delete_project(
             pass
     await session.delete(project)
     await session.commit()
+
+
+@router.get("/{project_id}/icon")
+async def get_icon(
+    project_id: str, session: AsyncSession = Depends(get_session)
+) -> Response:
+    """The app's fetched favicon bytes, or 404 if none has been captured yet
+    (the UI falls back to initials). The restrictive headers neutralize a
+    hostile SVG favicon if this URL is ever opened directly."""
+    project = await get_project(project_id, session)
+    if project.icon_data is None:
+        raise HTTPException(status_code=404, detail="no icon for this project")
+    return Response(
+        content=project.icon_data,
+        media_type=project.icon_content_type or "application/octet-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+        },
+    )
+
+
+@router.post("/{project_id}/icon/refresh")
+async def refresh_icon(
+    project_id: str, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Pull the app's favicon from its running container now. Returns whether
+    one was found; an app that serves no favicon just keeps its initials."""
+    project = await get_project(project_id, session)
+    fetched = await appicon.fetch_and_store(session, project)
+    await session.commit()
+    return {"fetched": fetched}
 
 
 @router.get("/{project_id}/starters")

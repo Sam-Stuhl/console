@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { fetchProjects } from '../api/client'
 import { localDay } from '../lib/format'
+import ProjectIcon from '../components/ProjectIcon'
 
 export default function ProjectList() {
   const navigate = useNavigate()
@@ -61,9 +62,10 @@ export default function ProjectList() {
                   <td className="py-2.5 pr-4">
                     <Link
                       to={`/projects/${p.id}`}
-                      className="font-mono text-sm font-medium hover:text-primary"
+                      className="flex items-center gap-2.5 font-mono text-sm font-medium hover:text-primary"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      <ProjectIcon project={p} size={22} rounded="rounded-md" />
                       {p.name}
                     </Link>
                   </td>

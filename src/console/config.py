@@ -61,6 +61,11 @@ NTFY_DEFAULT_SERVER = "https://ntfy.sh"
 # Credential expiry: warn this many days before a tracked token lapses.
 CREDENTIAL_WARN_DAYS = 14
 
+# App icon: the console pulls each app's own favicon from its running container
+# (container-to-container, like the monitor) to show in place of initials.
+ICON_TIMEOUT = 5  # per-request HTTP timeout
+ICON_MAX_BYTES = 256 * 1024  # refuse anything larger than this
+
 # Reaper timeouts for stuck deployments, in seconds
 REAPER_INTERVAL = 60
 BUILD_TIMEOUT = 30 * 60
