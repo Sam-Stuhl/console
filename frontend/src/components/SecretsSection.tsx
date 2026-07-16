@@ -4,11 +4,14 @@ import type { ImportResult } from '../api/client'
 import {
   deleteSecret,
   exportSecrets,
-  fetchSecrets,
+  fetchDeployments,
   importSecrets,
+  fetchSecrets,
   putSecret,
+  redeployDeployment,
   revealSecret,
 } from '../api/client'
+import { canRedeploy } from './DeploymentsSection'
 import DropTextArea from './DropTextArea'
 import { copyText } from '../lib/clipboard'
 const KEY_PATTERN = '[A-Z_][A-Z0-9_]*'
@@ -31,10 +34,32 @@ export default function SecretsSection({ projectId }: { projectId: string }) {
   const [importText, setImportText] = useState('')
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [copied, setCopied] = useState(false)
+  // True once a secret has been changed this session but not yet redeployed, so
+  // we can nudge that the running app is still on the old values.
+  const [changed, setChanged] = useState(false)
+
+  // Shares the deployments cache with DeploymentsSection. The latest deployable
+  // build is what a redeploy re-runs to pick up the new secrets.
+  const { data: deployments } = useQuery({
+    queryKey: ['deployments', projectId],
+    queryFn: () => fetchDeployments(projectId),
+  })
+  const latest = deployments?.[0]
+  const redeployable = latest ? canRedeploy(latest) : false
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ['secrets', projectId] })
   }
+
+  const redeploy = useMutation({
+    mutationFn: () => redeployDeployment(projectId, latest!.id),
+    onSuccess: () => {
+      setActionError(null)
+      setChanged(false)
+      queryClient.invalidateQueries({ queryKey: ['deployments', projectId] })
+    },
+    onError: (err: Error) => setActionError(err.message),
+  })
 
   const save = useMutation({
     mutationFn: ({ key, value }: { key: string; value: string }) =>
@@ -46,6 +71,7 @@ export default function SecretsSection({ projectId }: { projectId: string }) {
       setNewKey('')
       setNewValue('')
       setRevealed(({ [key]: _gone, ...rest }) => rest)
+      setChanged(true)
       refresh()
     },
     onError: (err: Error) => setActionError(err.message),
@@ -56,6 +82,7 @@ export default function SecretsSection({ projectId }: { projectId: string }) {
     onSuccess: (_data, key) => {
       setActionError(null)
       setRevealed(({ [key]: _gone, ...rest }) => rest)
+      setChanged(true)
       refresh()
     },
     onError: (err: Error) => setActionError(err.message),
@@ -78,6 +105,7 @@ export default function SecretsSection({ projectId }: { projectId: string }) {
       setImporting(false)
       setImportText('')
       setRevealed({})
+      if (result.added.length > 0 || result.updated.length > 0) setChanged(true)
       refresh()
     },
     onError: (err: Error) => setActionError(err.message),
@@ -296,7 +324,61 @@ export default function SecretsSection({ projectId }: { projectId: string }) {
         </button>
       </form>
 
+      <RedeployNote
+        hasDeploy={(deployments?.length ?? 0) > 0}
+        changed={changed}
+        redeployable={redeployable}
+        pending={redeploy.isPending}
+        onRedeploy={() => redeploy.mutate()}
+      />
+
       {actionError && <p className="font-mono text-xs text-error">{actionError}</p>}
+    </div>
+  )
+}
+
+function RedeployNote({
+  hasDeploy,
+  changed,
+  redeployable,
+  pending,
+  onRedeploy,
+}: {
+  hasDeploy: boolean
+  changed: boolean
+  redeployable: boolean
+  pending: boolean
+  onRedeploy: () => void
+}) {
+  // Secrets are read when the container starts, so a change only reaches the
+  // running app on its next deploy. Nudge that, and offer the redeploy inline.
+  const nudge = hasDeploy && changed
+  const text = !hasDeploy
+    ? 'Secrets apply on the app’s first deploy.'
+    : changed
+      ? 'Secret changed. Redeploy to apply it to the running app.'
+      : 'Secrets are read at container start, so changes take effect on the next deploy.'
+
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-3 rounded-box border px-3 py-2 font-mono text-xs leading-relaxed ${
+        nudge ? 'border-warning/40 bg-warning/5 text-warning' : 'border-base-300 text-faint'
+      }`}
+    >
+      <span>{text}</span>
+      {hasDeploy &&
+        (redeployable ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onRedeploy}
+            className="rounded-field border border-base-300 px-2.5 py-1 text-muted transition-colors duration-150 hover:border-primary/50 hover:text-primary disabled:opacity-40"
+          >
+            {pending ? 'redeploying…' : 'redeploy'}
+          </button>
+        ) : (
+          <span className="text-faint">a deploy is in progress; redeploy when it finishes</span>
+        ))}
     </div>
   )
 }
