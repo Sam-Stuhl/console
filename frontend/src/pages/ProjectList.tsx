@@ -77,7 +77,21 @@ export default function ProjectList() {
                     <ProjectStatusBadge project={p} />
                   </td>
                   <td className="py-2.5 pr-4 font-mono text-xs text-muted">{p.repo}</td>
-                  <td className="py-2.5 pr-4 font-mono text-xs text-muted">{p.subdomain}</td>
+                  <td className="py-2.5 pr-4 font-mono text-xs">
+                    <a
+                      href={p.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`open ${p.name} site`}
+                      className="inline-flex items-center gap-1 whitespace-nowrap text-muted transition-colors duration-150 hover:text-primary"
+                    >
+                      {p.subdomain}
+                      <span aria-hidden className="text-[10px]">
+                        &#8599;
+                      </span>
+                    </a>
+                  </td>
                   <td className="py-2.5 pr-4 font-mono text-xs text-muted">{p.branch}</td>
                   <td className="py-2.5 text-right font-mono text-xs tabular-nums text-muted">
                     {localDay(p.created_at)}
