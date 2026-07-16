@@ -35,6 +35,12 @@ class Project(Base):
     protected: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     access_emails: Mapped[str | None] = mapped_column(Text)
     cf_app_id: Mapped[str | None] = mapped_column(Text)
+    # The app's own favicon, fetched from its running container (never pasted in).
+    # Null until a deploy or a manual refresh pulls one; the UI falls back to
+    # initials. Stored as raw bytes plus its content type so it serves as-is.
+    icon_data: Mapped[bytes | None] = mapped_column(LargeBinary)
+    icon_content_type: Mapped[str | None] = mapped_column(Text)
+    icon_fetched_at: Mapped[datetime | None]
 
 
 class Deployment(Base):
