@@ -8,8 +8,13 @@ operational extras in the browser, no files or restarts: private-image pulls,
 the access-toggle credentials, off-box backups, uptime alerts, extra domains,
 and credential-expiry warnings (steps 9-10).
 
-The console is run **by hand** here and is never deployed through its own
-engine. It is built by CI (never on the server); the server only pulls.
+The console is never deployed through its own engine (that would be circular).
+It is built by CI (never on the server); the server only pulls. After this
+runbook, pushing to `main` updates the console automatically: CI publishes the
+image, then a deploy job on this box's self-hosted runner pulls and recreates
+the container. See "Updating the console later" at the end for the manual
+override, and `remote-access.md` for reaching the box from elsewhere once it
+is up.
 
 > Confirm the real domain first. CLAUDE.md flags `samstuhl.com` as an
 > unverified spelling. Check it against your registrar before the Cloudflare
@@ -25,7 +30,7 @@ engine. It is built by CI (never on the server); the server only pulls.
 - The domain on **Cloudflare** (DNS managed by Cloudflare).
 - This repo cloned, and a shell open in it:
   `git clone https://github.com/Sam-Stuhl/console` then `cd console`.
-- Run commands in **PowerShell** or a **WSL2 shell** — `docker` works in
+- Run commands in **PowerShell** or a **WSL2 shell**: `docker` works in
   both. Files in this repo use LF endings (enforced by `.gitattributes`),
   so cloning on Windows will not corrupt anything that runs in a container.
 
@@ -107,10 +112,10 @@ bypass Access while everything else requires your login.
 Zero Trust -> **Access -> Applications**. Create **two** self-hosted apps
 (Cloudflare evaluates the more specific path first):
 
-- **App A, the webhooks** — hostname `console.samstuhl.com`, path `hooks`.
+- **App A, the webhooks**: hostname `console.samstuhl.com`, path `hooks`.
   One policy, action **Bypass**, include **Everyone**. (Safe: the console
   rejects any call whose OIDC token is not owned by Sam-Stuhl.)
-- **App B, the console UI** — hostname `console.samstuhl.com`, no path.
+- **App B, the console UI**: hostname `console.samstuhl.com`, no path.
   One policy, action **Allow**, include your email.
 
 Every other app subdomain is public by default (the wildcard route sends it
@@ -285,16 +290,42 @@ redeploy to route the new hostname.
 
 ## Updating the console later
 
+Normally you do nothing: push to `main` and the console updates itself. CI
+builds and publishes the image, then the `deploy` job in `build.yml` runs on
+this box's self-hosted runner and does the pull and recreate for you.
+
+That is out-of-band, not self-deployment: it is a plain `docker compose pull`
+and `up`, never the console's own deploy engine, so a bad console build can
+restart-loop the console but can never wedge the thing you would fix it with.
+
+Run it by hand when you need to override that, most often to roll back to a
+known-good image:
+
 ```
 git pull
 docker compose -f compose.prod.yaml pull console
 docker compose -f compose.prod.yaml up -d console
 ```
 
-The database is on the `console-data` volume and survives updates. The
-console is always updated this way, by hand, never through its own engine,
-so a bad console build can never take the console offline as the only way to
-reach the server.
+To roll back, pin an older image instead of `latest`. CI tags every build with
+the short sha of its commit to `main`, so pick one from the **Actions** tab or
+the package's version list. In PowerShell:
+
+```
+$env:CONSOLE_IMAGE = "ghcr.io/sam-stuhl/console:1a2b3c4"
+docker compose -f compose.prod.yaml up -d console
+```
+
+That pin is a stopgap, not a state change: `$env:` lasts only for that shell,
+and the next push to `main` recreates the container on `latest` again. Use it
+to get the console back, then fix forward or revert the commit.
+
+The database survives updates: it is the `./data` bind mount next to
+`compose.prod.yaml` (so the whole state is `./data` plus `./secrets/console_key`,
+copyable to a new machine). Run these **on the box**, not over a remote Docker
+context: compose resolves `./data` and the key secret on whichever machine you
+type on, so running it remotely would start the console on a blank database.
+`remote-access.md` explains that trap in full.
 
 ## Notes
 
@@ -304,6 +335,10 @@ reach the server.
 - **No host ports:** nothing is published to the PC. To debug without the
   tunnel, temporarily add `ports: ["80:80"]` to the Traefik service, or curl
   from inside the `web` network as in step 7.
+- **Reaching the box from elsewhere:** `remote-access.md` sets up SSH over this
+  same tunnel plus a remote Docker context, so you can inspect and restart
+  containers from the Mac without being at the PC. It needs no new inbound port
+  and no new service here.
 - **Container terminal:** the per-app terminal is the one websocket in the app
   (everything else polls). Cloudflare tunnels proxy websockets by default, and it
   sits behind the same Access login as the console UI, so no extra setup.
