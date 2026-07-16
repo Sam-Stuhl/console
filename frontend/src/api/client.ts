@@ -161,6 +161,34 @@ export const createProject = (body: {
 export const fetchDomains = () =>
   getJson<{ domains: string[] }>('/api/projects/domains')
 
+export interface DomainsConfig {
+  primary: string
+  extras: string[]
+}
+
+export const fetchDomainsConfig = () => getJson<DomainsConfig>('/api/domains')
+
+export const putDomains = (extras: string[]) =>
+  request<DomainsConfig>('/api/domains', jsonInit('PUT', { extras }))
+
+export type Repoint = 'auto' | 'manual'
+
+export interface DomainChangeResult {
+  project: Project
+  redeploy_required: boolean
+  note: string | null
+}
+
+export const changeProjectDomain = (
+  id: string,
+  domain: string | null,
+  repoint: Repoint,
+) =>
+  request<DomainChangeResult>(
+    `/api/projects/${id}/domain`,
+    jsonInit('PUT', { domain, repoint }),
+  )
+
 export const deleteProject = (id: string) =>
   request<void>(`/api/projects/${id}`, jsonInit('DELETE'))
 

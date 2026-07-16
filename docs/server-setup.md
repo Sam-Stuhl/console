@@ -262,19 +262,26 @@ Apps serve at `{subdomain}.{domain}`. The primary domain is `CONSOLE_DOMAIN`;
 to host apps under a second domain, give that domain the same one-time setup as
 the primary, then tell the console about it:
 
-1. In Cloudflare, add a **wildcard tunnel route** `*.newdomain.com` -> service
-   `traefik:80` on the same tunnel (exactly like the primary's wildcard in step
-   3), and make sure its DNS is managed by Cloudflare. If your plan refuses a
-   proxied wildcard, add each app's hostname on the new domain by hand when you
-   register it.
-2. In the console: **Settings -> domains**, add `newdomain.com` (comma-separated
-   for more than one).
+1. Add the domain to Cloudflare as a **zone**: dashboard -> **Add a site**,
+   enter `newdomain.com`, and switch its nameservers to Cloudflare at your
+   registrar. Wait until the zone shows **Active**.
+2. Route it through the same tunnel: **Zero Trust -> Networks -> Tunnels -> your
+   tunnel -> Public Hostname -> Add a public hostname**. Set **Subdomain** `*`,
+   **Domain** `newdomain.com`, **Type** `HTTP`, **URL** `traefik:80`, save. The
+   wildcard covers every app's subdomain and creates the DNS for you. (If your
+   plan refuses a proxied wildcard, add each app's hostname by hand instead.)
+3. In the console: **Settings -> domains**, type `newdomain.com` and **add**. It
+   appears in the list with a **remove** control; the primary is shown but
+   fixed.
 
 That is all. The console never touches Cloudflare DNS or the tunnel; it only
 records which domains exist so a project's create form can offer them, sets the
 Traefik `Host` rule to the chosen domain, and gates the right hostname when you
 flip a project's access toggle. Registering a project then shows a **domain**
-picker; pick the new domain and deploy.
+picker. To move an existing app, open its page -> **website -> domain ->
+change**, pick the domain, and (if the app is protected) choose whether the
+console moves its Cloudflare Access gate for you or you move it yourself; then
+redeploy to route the new hostname.
 
 ## Updating the console later
 
