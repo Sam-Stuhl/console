@@ -1,12 +1,13 @@
 import re
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import cloudflare, domains
+from console import cloudflare, config, domains
 from console.db.models import Project, ProjectHealth
 from console.db.session import get_session
 from console.schema.console_toml import validate_subdomain_format
@@ -43,6 +44,19 @@ class ProjectOut(BaseModel):
 class AccessUpdate(BaseModel):
     protected: bool
     emails: list[str] = []
+
+
+class DomainUpdate(BaseModel):
+    domain: str | None = None  # None means the primary CONSOLE_DOMAIN
+    # For a protected app, how to move its Access login gate to the new hostname:
+    # "auto" recreates it via Cloudflare; "manual" leaves it to the user.
+    repoint: Literal["auto", "manual"] = "manual"
+
+
+class DomainChangeResult(BaseModel):
+    project: ProjectOut
+    redeploy_required: bool  # the Traefik host label only changes on next deploy
+    note: str | None = None  # what happened to the Access gate, if anything
 
 
 def _out(project: Project, health: str = "unknown") -> ProjectOut:
@@ -164,6 +178,71 @@ async def set_access(
     project.cf_app_id = cf_app_id
     await session.commit()
     return _out(project)
+
+
+@router.put("/{project_id}/domain")
+async def set_domain(
+    project_id: str,
+    body: DomainUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> DomainChangeResult:
+    """Move a project to a different base domain. The change only reaches Traefik
+    on the next deploy (the host label is baked in then), so the result always
+    flags that a redeploy is required.
+
+    If the app is protected by Cloudflare Access, its login gate is tied to the
+    old hostname. "auto" recreates the gate for the new hostname (creating the
+    new one first, then removing the old, so a Cloudflare failure changes
+    nothing); "manual" leaves the gate for the user to move themselves."""
+    project = await get_project(project_id, session)
+
+    if body.domain is not None and body.domain not in await domains.available(session):
+        raise HTTPException(
+            status_code=400,
+            detail=f'domain "{body.domain}" is not configured; add it in Settings first',
+        )
+    target = body.domain or config.DOMAIN
+    health = await session.get(ProjectHealth, project_id)
+    state = health.state if health else "unknown"
+
+    if target == domains.of(project):
+        return DomainChangeResult(
+            project=_out(project, state),
+            redeploy_required=False,
+            note="Already on this domain.",
+        )
+
+    note: str | None = None
+    if project.protected:
+        new_hostname = f"{project.subdomain}.{target}"
+        if body.repoint == "auto":
+            emails = project.access_emails.split(",") if project.access_emails else []
+            token, account_id = await cloudflare.resolve_credentials(session)  # 503
+            access = cloudflare.Access(token, account_id)
+            try:
+                new_id = await access.reconcile(new_hostname, True, emails, None)
+            except cloudflare.AccessApiError as exc:
+                raise HTTPException(status_code=502, detail=str(exc))
+            if project.cf_app_id:  # remove the old-hostname gate, best effort
+                try:
+                    await access.delete_app(project.cf_app_id)
+                except Exception:
+                    pass
+            project.cf_app_id = new_id
+            note = f"Moved the Cloudflare Access gate to {new_hostname}."
+        else:
+            note = (
+                "Access is still on, but its login gate still points at the old "
+                "hostname. Move it in Cloudflare, or toggle protection off and "
+                "back on here to recreate it for the new hostname."
+            )
+
+    # Store null for the primary so the "null = primary" invariant holds.
+    project.domain = None if target == config.DOMAIN else target
+    await session.commit()
+    return DomainChangeResult(
+        project=_out(project, state), redeploy_required=True, note=note
+    )
 
 
 @router.delete("/{project_id}", status_code=204)
