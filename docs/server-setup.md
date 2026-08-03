@@ -61,19 +61,53 @@ does not depend on any account surviving.
 Verified on an Intel Mac mini running macOS 15.
 
 macOS has one structural quirk that shapes everything: **LaunchAgents load at
-login, not at boot.** There is no per-user service that starts before someone
-logs in. So an always-on Mac server needs **auto-login enabled**, and that is a
-load-bearing dependency rather than a convenience.
+login, not at boot, and they die when that user logs out.** launchd has two
+kinds of job, and the difference is the single most important thing to get
+right here:
 
-Two consequences worth internalizing before you build on it:
+| | LaunchAgent | LaunchDaemon |
+| --- | --- | --- |
+| lives in | `~/Library/LaunchAgents` | `/Library/LaunchDaemons` |
+| starts | when a user logs in | at boot |
+| stops | when that user logs out | at shutdown |
+| runs as | that user | root, or any user via `UserName` |
 
-- **FileVault must be off**, or the machine stops at the unlock screen after a
-  reboot and auto-login never happens. On a headless box with no keyboard
-  attached, that means driving there to fix it. Check with `fdesetup status`.
-- **Anything that must survive a reboot has to tolerate that model.** If you
-  use Tailscale or similar for remote access, install it as a *system* daemon
-  rather than as a per-user GUI app, or you will lose remote access at exactly
-  the moment auto-login fails. See `remote-access.md`.
+**Run your server's pieces as LaunchDaemons.** The tempting shortcut is a
+LaunchAgent plus auto-login, and it appears to work: the machine reboots and
+everything comes back. But production is then living inside a login session,
+and anything that ends that session kills it. Logging into a *second* account
+graphically is enough. That failure mode is not hypothetical: it took this
+console's four sites down twice in one afternoon before the daemons went in.
+
+A daemon can still run as your server account, which it must, since the VM
+image, the docker socket, and the deploy clone all live in that home directory.
+Add `UserName`, and give it `HOME` and `PATH` explicitly, because daemons
+inherit almost no environment:
+
+```xml
+<key>UserName</key>  <string>console</string>
+<key>RunAtLoad</key> <true/>
+<key>KeepAlive</key> <dict><key>SuccessfulExit</key><false/></dict>
+<key>EnvironmentVariables</key>
+<dict>
+  <key>HOME</key> <string>/Users/console</string>
+  <key>PATH</key> <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+</dict>
+```
+
+Install with `sudo launchctl bootstrap system /Library/LaunchDaemons/<label>.plist`.
+The file must be owned `root:wheel` and mode `644`, or launchd refuses it.
+
+Done this way, **auto-login is unnecessary and should stay off**, and the box
+boots to no session at all while serving normally.
+
+The same reasoning applies to remote access: install Tailscale or similar as a
+*system* daemon, never as a per-user GUI app, or you lose your way in the
+moment nobody is logged in. See `remote-access.md`.
+
+> FileVault remains a separate obstacle for an unattended reboot: an encrypted
+> boot volume wants an unlock before anything starts, which a headless box
+> cannot provide. Check with `fdesetup status`.
 
 Use a dedicated account for the server (`console` below), separate from your
 own. The Actions runner executes whatever is on `main` of a public repo, so
@@ -88,12 +122,11 @@ colima is preferred over Docker Desktop here for one reason: it has no GUI.
 Docker Desktop is an application tied to a graphical session, which adds a
 second thing that can fail to start on a headless box.
 
-Auto-start needs a LaunchAgent. `brew services start colima` works if you use
-the default profile; for a named profile, write
-`~/Library/LaunchAgents/com.example.colima.plist` with `RunAtLoad`, `KeepAlive`
-(`SuccessfulExit` false), and `ProgramArguments` of
-`/usr/local/bin/colima start -f`. Keep the clone in that account's home, for
-example `/Users/console/servers/console`.
+Auto-start goes in a **LaunchDaemon**, per the table above, running
+`/usr/local/bin/colima start -f`. `brew services start colima` is tempting and
+does work, but it installs a LaunchAgent, which is the arrangement you are
+trying to avoid. Keep the clone in that account's home, for example
+`/Users/console/servers/console`.
 
 Two things that will waste your time otherwise:
 
@@ -300,6 +333,9 @@ asked for one service. That is deliberate: both are load bearing.
   regret. With nobody logged in, everything must return on its own: the engine,
   all containers, the tunnel, and your remote access. If any of those needed a
   human, fix that now rather than discovering it during an outage.
+- **Then log in and out of a second account** while watching the stack. A
+  reboot test alone passes even on a fragile LaunchAgent setup, because
+  auto-login hides the problem. Logging in as someone else is what exposes it.
 
 ## 9. First real deploy
 
@@ -346,8 +382,11 @@ on your box pulls and recreates the container. That job needs a runner.
 2. **Give it the label `console-host`.** The workflows select by that role
    label rather than by operating system.
 3. Install it as a service so it survives reboots (`./svc.sh install` on
-   macOS/Linux). On macOS that is a LaunchAgent, so it inherits the auto-login
-   dependency above.
+   macOS/Linux). **On macOS `svc.sh` writes a LaunchAgent**, which dies with the
+   login session: a logout stops your deploys. Take the plist it generates,
+   convert it to a LaunchDaemon (add `HOME` and `PATH`, drop `SessionCreate` and
+   `ProcessType`, which are login-session concepts), and bootstrap it into the
+   system domain instead.
 4. Set repository variables under **Settings -> Secrets and variables ->
    Actions -> Variables**:
    - `CONSOLE_DEPLOY_DIR`: absolute path of the deploy clone on the box.

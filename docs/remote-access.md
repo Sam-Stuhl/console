@@ -155,9 +155,13 @@ when inbound paths are unhealthy. Its real job is re-pinning a known-good image
 when a bad one is restart-looping the console.
 
 What it cannot do is help when the runner itself is not running. If the machine
-rebooted and the runner never started, nobody is home to press the button. That
-is exactly why Option A should be a system daemon: a different failure domain
-from anything needing a user session.
+rebooted and the runner never started, nobody is home to press the button.
+
+So install the runner as a **system service too**, not just your VPN. On macOS
+the runner's own `svc.sh` writes a LaunchAgent, which stops the moment that
+account logs out: a logout silently disables your deploys, and the button you
+would reach for is gone with them. Convert it to a LaunchDaemon. See
+`server-setup.md` for the shape.
 
 **If the repo is public, the run logs are a public web page.** GitHub masks its
 own Actions secrets; it cannot mask yours, because app secrets live encrypted in

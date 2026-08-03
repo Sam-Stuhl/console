@@ -211,6 +211,11 @@ Reboot the new machine and let it come back with nobody logged in. Verify:
 - the tunnel reconnects
 - the runner reports online to GitHub
 
+Then run the test that a reboot alone will not catch: **log in and out of a
+second account** while watching the stack. If any piece runs in a login
+session, that is what kills it, and a reboot test passes anyway because the
+session gets recreated. See `server-setup.md` on daemons versus agents.
+
 On macOS specifically: a scripted restart via `osascript ... to restart`
 silently does nothing when another session is logged in, because macOS raises a
 confirmation dialog no one can answer. Use `sudo reboot`.
