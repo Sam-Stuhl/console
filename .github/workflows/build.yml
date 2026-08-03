@@ -45,14 +45,29 @@ jobs:
     # box's clone clean (deploy-only): edit from elsewhere and push; the box
     # pulls. A bad image restart-loops the console but never locks you out.
     needs: build
-    runs-on: [self-hosted, Windows]
+    # Label your server's runner `console-host`. Any OS with bash and docker
+    # works; nothing here is platform-specific.
+    runs-on: [self-hosted, console-host]
     steps:
       - name: Pull the new image and recreate the console
-        shell: powershell
-        # The deployed clone on the box. On a new machine, clone to this path
-        # (or edit it) and register a runner; nothing else changes.
-        working-directory: C:\Users\Sam\servers\console
+        shell: bash
+        env:
+          # Repo variable: the absolute path of the deploy clone on your box.
+          # Settings -> Secrets and variables -> Actions -> Variables.
+          DEPLOY_DIR: ${{ vars.CONSOLE_DEPLOY_DIR }}
         run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_DIR:-}" ]; then
+            echo "CONSOLE_DEPLOY_DIR repo variable is not set." >&2
+            exit 1
+          fi
+          # Service managers often start runners with a minimal PATH that omits
+          # wherever docker was installed. Add the usual prefixes if they exist.
+          for p in /opt/homebrew/bin /usr/local/bin; do
+            if [ -d "$p" ]; then PATH="$p:$PATH"; fi
+          done
+          export PATH
+          cd "$DEPLOY_DIR"
           git pull --ff-only
           docker compose -f compose.prod.yaml pull console
           docker compose -f compose.prod.yaml up -d console
