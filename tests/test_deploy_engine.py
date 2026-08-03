@@ -23,7 +23,7 @@ LOG_LEVEL = "info"
 # secrets must sit above the first [section] header
 TOML_WITH_SECRET = 'secrets = ["DATABASE_URL"]\n' + TOML
 SHA = "e5f6a7b0d1c2"
-IMAGE = "ghcr.io/sam-stuhl/demo:e5f6a7b"
+IMAGE = "ghcr.io/example-owner/demo:e5f6a7b"
 
 
 def snapshot(text=TOML):
@@ -144,7 +144,7 @@ def unhealthy(monkeypatch, fake_docker):
 
 async def seed(db, *, toml=TOML, status="queued", with_live_row=False):
     async with db() as session:
-        project = Project(name="demo", repo="sam-stuhl/demo", subdomain="app-demo")
+        project = Project(name="demo", repo="example-owner/demo", subdomain="app-demo")
         session.add(project)
         await session.flush()
         rows = {}

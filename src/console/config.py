@@ -11,7 +11,7 @@ MEMORY_CAP_BYTES = 16 * 1024**3
 CPUS_CAP = 8.0
 HEALTH_TIMEOUT_CAP = 300
 
-# Host rule suffix: app.localhost in dev, app.samstuhl.com in prod
+# Host rule suffix: app.localhost in dev, app.<your-domain> in prod
 DOMAIN = os.environ.get("CONSOLE_DOMAIN", "localhost")
 
 # Cloudflare Access automation. The console manages ONLY per-app Access
@@ -29,7 +29,16 @@ CF_API_BASE = os.environ.get("CONSOLE_CF_API_BASE", "https://api.cloudflare.com/
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 OIDC_JWKS_URL = OIDC_ISSUER + "/.well-known/jwks"
 OIDC_AUDIENCE = os.environ.get("CONSOLE_OIDC_AUDIENCE", "console")
-OIDC_OWNER = "sam-stuhl"
+# The GitHub account whose repos are allowed to deploy to this console. There
+# is deliberately no default: a console that trusts any owner is a console
+# anyone can deploy to, so an unset value rejects every webhook rather than
+# waving them through.
+OIDC_OWNER = os.environ.get("CONSOLE_OIDC_OWNER", "")
+
+# The repo holding the reusable build workflow that app repos call. Defaults to
+# the upstream project, which is what a fresh install wants; point it at your
+# own fork if you maintain one.
+WORKFLOW_REPO = os.environ.get("CONSOLE_WORKFLOW_REPO", "Sam-Stuhl/console")
 
 # Deploy engine. Router priorities count down from PRIORITY_START so the
 # live container's router always outranks its unverified replacement.

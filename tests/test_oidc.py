@@ -24,9 +24,15 @@ class StubJwksClient:
         return StubSigningKey()
 
 
+OWNER = "example-owner"
+
+
 @pytest.fixture(autouse=True)
 def stub_jwks(monkeypatch):
     monkeypatch.setattr(oidc, "_jwks_client", lambda: StubJwksClient())
+    # OIDC_OWNER is deployment config now, so pin it rather than depending on
+    # whatever the machine running the tests happens to have set.
+    monkeypatch.setattr(config, "OIDC_OWNER", OWNER)
 
 
 def make_token(key=PRIVATE_KEY, **overrides):
@@ -36,8 +42,8 @@ def make_token(key=PRIVATE_KEY, **overrides):
         "aud": config.OIDC_AUDIENCE,
         "iat": now,
         "exp": now + 300,
-        "repository_owner": "sam-stuhl",
-        "repository": "sam-stuhl/notion-sync",
+        "repository_owner": OWNER,
+        "repository": f"{OWNER}/some-app",
         "ref": "refs/heads/main",
     }
     claims.update(overrides)
@@ -47,7 +53,7 @@ def make_token(key=PRIVATE_KEY, **overrides):
 
 def test_valid_token_returns_claims():
     claims = oidc.verify(make_token())
-    assert claims["repository"] == "sam-stuhl/notion-sync"
+    assert claims["repository"] == f"{OWNER}/some-app"
     assert claims["ref"] == "refs/heads/main"
 
 
@@ -79,13 +85,13 @@ def test_wrong_signature_rejected():
 
 def test_canonical_owner_case_accepted():
     # GitHub emits the owner in its real case; the check is case-insensitive
-    claims = oidc.verify(make_token(repository_owner="Sam-Stuhl"))
-    assert claims["repository_owner"] == "Sam-Stuhl"
+    claims = oidc.verify(make_token(repository_owner="Example-Owner"))
+    assert claims["repository_owner"] == "Example-Owner"
 
 
 def test_wrong_owner_rejected():
-    with pytest.raises(WrongOwner, match='"not-sam"'):
-        oidc.verify(make_token(repository_owner="not-sam"))
+    with pytest.raises(WrongOwner, match='"someone-else"'):
+        oidc.verify(make_token(repository_owner="someone-else"))
 
 
 def test_missing_owner_rejected():
@@ -96,3 +102,11 @@ def test_missing_owner_rejected():
 def test_garbage_token_rejected():
     with pytest.raises(OidcError):
         oidc.verify("not-a-jwt-at-all")
+
+
+def test_unset_owner_rejects_everything(monkeypatch):
+    """A console with no configured owner must not trust any token. Failing
+    open here would let any GitHub account deploy to this box."""
+    monkeypatch.setattr(config, "OIDC_OWNER", "")
+    with pytest.raises(OidcError):
+        oidc.verify(make_token())

@@ -2,7 +2,7 @@ from console import config
 
 PROJECT = {
     "name": "notion-sync",
-    "repo": "sam-stuhl/notion-sync",
+    "repo": "example-owner/notion-sync",
     "subdomain": "notion-sync",
 }
 

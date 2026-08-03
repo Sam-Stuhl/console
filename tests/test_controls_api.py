@@ -21,7 +21,7 @@ class FakeContainer:
         return {
             "Id": self.id,
             "Name": "/" + self.name,
-            "Config": {"Image": "ghcr.io/sam-stuhl/demo:tag"},
+            "Config": {"Image": "ghcr.io/example-owner/demo:tag"},
             "State": {"Status": self.status},
             "Created": "2026-01-01T00:00:00Z",
         }
@@ -78,7 +78,7 @@ def fake(monkeypatch):
 
 async def make_project(db, subdomain="app-demo"):
     async with db() as session:
-        project = Project(name="demo", repo="sam-stuhl/demo", subdomain=subdomain)
+        project = Project(name="demo", repo="example-owner/demo", subdomain=subdomain)
         session.add(project)
         await session.commit()
         return project.id

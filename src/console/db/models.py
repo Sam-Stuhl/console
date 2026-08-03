@@ -22,7 +22,7 @@ class Project(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(Text, unique=True)
-    repo: Mapped[str] = mapped_column(Text, unique=True)  # "sam-stuhl/notion-sync"
+    repo: Mapped[str] = mapped_column(Text, unique=True)  # "owner/repo"
     branch: Mapped[str] = mapped_column(Text, default="main")
     subdomain: Mapped[str] = mapped_column(Text, unique=True)
     # The base domain the app serves under; the host is {subdomain}.{domain}.

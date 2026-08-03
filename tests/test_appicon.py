@@ -58,7 +58,7 @@ def http(monkeypatch):
 
 async def make_project(db, *, live=True):
     async with db() as session:
-        project = Project(name="demo", repo="sam-stuhl/demo", subdomain="app-demo")
+        project = Project(name="demo", repo="example-owner/demo", subdomain="app-demo")
         session.add(project)
         await session.flush()
         if live:

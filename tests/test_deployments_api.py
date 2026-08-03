@@ -29,7 +29,7 @@ def enqueued(monkeypatch):
 
 async def seed_project(db, name="demo"):
     async with db() as session:
-        project = Project(name=name, repo=f"sam-stuhl/{name}", subdomain=name)
+        project = Project(name=name, repo=f"example-owner/{name}", subdomain=name)
         session.add(project)
         await session.commit()
         return project.id
@@ -41,7 +41,7 @@ async def seed_deployment(db, project_id, sha, minutes_ago=0, **fields):
             project_id=project_id,
             sha=sha,
             created_at=NOW - timedelta(minutes=minutes_ago),
-            **{"status": "live", "image": f"ghcr.io/sam-stuhl/demo:{sha[:7]}",
+            **{"status": "live", "image": f"ghcr.io/example-owner/demo:{sha[:7]}",
                "config_snapshot": snapshot(), **fields},
         )
         session.add(deployment)
