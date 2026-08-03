@@ -2,11 +2,12 @@ from pathlib import Path
 
 import yaml
 
+from console import config
 from console.schema.console_toml import parse_console_toml
 
 PROJECT = {
     "name": "fotoshare",
-    "repo": "sam-stuhl/fotoshare",
+    "repo": "example-owner/fotoshare",
     "subdomain": "fotos",
 }
 
@@ -56,7 +57,10 @@ async def test_caller_workflow_is_valid_and_wired(client):
     # yaml parses "on:" as the boolean True key
     assert parsed[True] == {"push": {"branches": ["release"]}}  # prefilled branch
     job = parsed["jobs"]["deploy"]
-    assert job["uses"] == "sam-stuhl/console/.github/workflows/app-deploy.yml@main"
+    assert (
+        job["uses"]
+        == f"{config.WORKFLOW_REPO}/.github/workflows/app-deploy.yml@main"
+    )
     assert job["permissions"]["id-token"] == "write"
     assert job["permissions"]["packages"] == "write"
 

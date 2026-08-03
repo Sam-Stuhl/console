@@ -28,7 +28,7 @@ async def seed(db, **fields):
     async with db() as session:
         project = await session.scalar(select(Project).where(Project.name == "demo"))
         if project is None:
-            project = Project(name="demo", repo="sam-stuhl/demo", subdomain="demo")
+            project = Project(name="demo", repo="example-owner/demo", subdomain="demo")
             session.add(project)
             await session.flush()
         deployment = Deployment(

@@ -67,7 +67,7 @@ def fake_docker(monkeypatch, db):
 
 async def seed(db, *, command="echo hi"):
     async with db() as session:
-        project = Project(name="demo", repo="sam-stuhl/demo", subdomain="app-demo")
+        project = Project(name="demo", repo="example-owner/demo", subdomain="app-demo")
         session.add(project)
         await session.flush()
         cmd_run = CommandRun(

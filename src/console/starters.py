@@ -1,6 +1,7 @@
 """Starter files for new app repos, prefilled from the project row. The
 console.toml starter must always pass the validator; a test enforces it."""
 
+from console import config, domains
 from console.db.models import Project
 
 CONSOLE_TOML_TEMPLATE = """\
@@ -17,7 +18,7 @@ secrets = []
 
 [app]
 name = "{name}"
-subdomain = "{subdomain}"  # serves at {subdomain}.samstuhl.com
+subdomain = "{subdomain}"  # serves at {subdomain}.{domain}
 port = 8080                # the port your app listens on inside the container
 
 [health]
@@ -36,8 +37,8 @@ cpus = 1.0       # max 8.0
 DOCKERFILE_TEMPLATE = """\
 # Dockerfile for {name}
 # GitHub Actions builds this on every push to {branch} and pushes the image
-# to GHCR; the server only pulls and runs it. The build targets amd64 (the
-# server), so your arm64 Mac never matters here.
+# to GHCR; the server only pulls and runs it. The build targets the server's
+# architecture, so whatever your development machine runs never matters here.
 #
 # Swap the base image and commands for your stack. The only contract with
 # the console is at the bottom: listen on app.port from console.toml and
@@ -67,9 +68,9 @@ WORKFLOW_TEMPLATE = """\
 # Deploy {name} through the console.
 #
 # This is a thin caller. The build+notify logic lives once in
-# sam-stuhl/console (public), .github/workflows/app-deploy.yml; update it
-# there and every app picks it up. Pin @main to a commit sha if you want
-# stability over always-latest.
+# {workflow_repo}, .github/workflows/app-deploy.yml; update it there and
+# every app picks it up. Pin @main to a commit sha if you want stability
+# over always-latest.
 #
 # One-time setup: in Cloudflare Access, add a Bypass policy for the
 # /hooks/* path on the console hostname. Those endpoints authenticate
@@ -83,7 +84,7 @@ on:
 
 jobs:
   deploy:
-    uses: sam-stuhl/console/.github/workflows/app-deploy.yml@main
+    uses: {workflow_repo}/.github/workflows/app-deploy.yml@main
     permissions:
       id-token: write
       packages: write
@@ -94,12 +95,16 @@ jobs:
 def starter_files(project: Project) -> dict[str, str]:
     return {
         "console_toml": CONSOLE_TOML_TEMPLATE.format(
-            name=project.name, subdomain=project.subdomain
+            name=project.name,
+            subdomain=project.subdomain,
+            domain=domains.of(project),
         ),
         "dockerfile": DOCKERFILE_TEMPLATE.format(
             name=project.name, branch=project.branch
         ),
         "workflow": WORKFLOW_TEMPLATE.format(
-            name=project.name, branch=project.branch
+            name=project.name,
+            branch=project.branch,
+            workflow_repo=config.WORKFLOW_REPO,
         ),
     }

@@ -5,7 +5,7 @@ from console.db.models import Deployment
 
 PROJECT = {
     "name": "notion-sync",
-    "repo": "sam-stuhl/notion-sync",
+    "repo": "example-owner/notion-sync",
     "subdomain": "notion-sync",
 }
 
@@ -42,7 +42,7 @@ async def test_duplicates_conflict(client):
     await create(client)
     for overrides in (
         {},
-        {"name": "other", "repo": "sam-stuhl/other"},  # same subdomain
+        {"name": "other", "repo": "example-owner/other"},  # same subdomain
         {"name": "other", "subdomain": "other"},  # same repo
     ):
         response = await create(client, **overrides)

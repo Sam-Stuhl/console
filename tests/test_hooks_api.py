@@ -2,15 +2,17 @@ import pytest
 from sqlalchemy import select
 
 from console import oidc
+from console import config
 from console.api.hooks import verified_claims
 from console.db.models import Deployment
 from console.main import app
 
-REPO = "sam-stuhl/notion-sync"
+OWNER = "example-owner"
+REPO = f"{OWNER}/some-app"
 
 CLAIMS = {
     "repository": REPO,
-    "repository_owner": "sam-stuhl",
+    "repository_owner": OWNER,
     "ref": "refs/heads/main",
 }
 
@@ -25,7 +27,7 @@ FINISHED = {
     "repo": REPO,
     "sha": "e5f6a7b0d1c2",
     "conclusion": "success",
-    "image": "ghcr.io/sam-stuhl/notion-sync:e5f6a7b",
+    "image": f"ghcr.io/{OWNER}/some-app:e5f6a7b",
     "console_toml": VALID_TOML,
 }
 
@@ -37,6 +39,13 @@ def claims():
     app.dependency_overrides[verified_claims] = lambda: value
     yield value
     app.dependency_overrides.pop(verified_claims, None)
+
+
+@pytest.fixture(autouse=True)
+def configured_owner(monkeypatch):
+    """The image-prefix check derives from deployment config, so pin it rather
+    than depending on the environment the tests happen to run in."""
+    monkeypatch.setattr(config, "OIDC_OWNER", OWNER)
 
 
 @pytest.fixture(autouse=True)
@@ -110,24 +119,24 @@ async def test_wrong_owner_is_403(client, monkeypatch):
 
 async def test_repo_mismatch_is_403(client, claims):
     await project(client)
-    response = await started(client, repo="sam-stuhl/other")
+    response = await started(client, repo=f"{OWNER}/other")
     assert response.status_code == 403
     assert "token was issued for" in response.json()["detail"]
 
 
 async def test_unknown_project_is_404(client, claims):
-    claims["repository"] = "sam-stuhl/unregistered"
-    response = await started(client, repo="sam-stuhl/unregistered")
+    claims["repository"] = f"{OWNER}/unregistered"
+    response = await started(client, repo=f"{OWNER}/unregistered")
     assert response.status_code == 404
 
 
 async def test_canonical_github_case_matches_lowercase_registration(client, claims, db):
     # Project registered lowercase; GitHub sends canonical case in both the
     # token claim and the payload. Owner and repo lookups must still match.
-    await project(client)  # registered as sam-stuhl/notion-sync
-    claims["repository"] = "Sam-Stuhl/notion-sync"
-    claims["repository_owner"] = "Sam-Stuhl"
-    response = await started(client, repo="Sam-Stuhl/notion-sync")
+    await project(client)  # registered as OWNER/some-app
+    claims["repository"] = "Example-Owner/Some-App"
+    claims["repository_owner"] = "Example-Owner"
+    response = await started(client, repo="Example-Owner/Some-App")
     assert response.status_code == 201
     assert response.json()["status"] == "building"
 
@@ -179,7 +188,7 @@ async def test_bad_image_ref_marks_failed(client, claims, db):
     response = await finished(client, image="docker.io/evil/image:latest")
     assert response.json()["status"] == "failed"
     row = await get_deployment(db, deployment_id)
-    assert "ghcr.io/sam-stuhl/" in row.failure_reason
+    assert f"ghcr.io/{OWNER}/" in row.failure_reason
 
 
 async def test_missing_toml_marks_failed(client, claims, db):

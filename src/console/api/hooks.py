@@ -15,11 +15,19 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import oidc
+from console import config, oidc
 from console.db.models import Deployment, Project, utcnow
 from console.db.session import get_session
 from console.deploy import engine as deploy_engine
 from console.schema.console_toml import ConfigError, parse_console_toml
+
+
+def _image_prefix() -> str:
+    """Images must come from the configured owner's GHCR namespace. Derived
+    from CONSOLE_OIDC_OWNER so a build cannot smuggle in a third party's
+    image, and so this holds for whoever runs the console."""
+    return f"ghcr.io/{config.OIDC_OWNER.lower()}/"
+
 
 router = APIRouter(prefix="/hooks")
 
@@ -63,7 +71,7 @@ async def resolve_project(
     is for a branch the project does not track: answer 200 and do nothing,
     so workflows on side branches never go red."""
     # GitHub owner/repo names are case-insensitive; the token and payload
-    # carry GitHub's canonical case (e.g. "Sam-Stuhl/..."), which need not
+    # carry GitHub's canonical case (e.g. "Example-Owner/..."), which need not
     # match how the project was registered. Compare case-insensitively.
     token_repo = claims.get("repository") or ""
     if repo.lower() != token_repo.lower():
@@ -155,8 +163,8 @@ async def build_finished(
     parsed = None
     if body.conclusion != "success":
         failure = f"build failed (conclusion: {body.conclusion})"
-    elif not body.image or not body.image.lower().startswith("ghcr.io/sam-stuhl/"):
-        failure = "image ref missing or not under ghcr.io/sam-stuhl/"
+    elif not body.image or not body.image.lower().startswith(_image_prefix()):
+        failure = f"image ref missing or not under {_image_prefix()}"
     elif not body.console_toml:
         failure = "build succeeded but no console.toml was sent"
     else:

@@ -49,7 +49,7 @@ def enqueued(monkeypatch):
     return ids
 
 
-async def make_project(db, subdomain="app-demo", name="demo", repo="sam-stuhl/demo"):
+async def make_project(db, subdomain="app-demo", name="demo", repo="example-owner/demo"):
     async with db() as session:
         project = Project(name=name, repo=repo, subdomain=subdomain)
         session.add(project)
@@ -128,8 +128,8 @@ async def test_get_and_list_runs(client, db, fake_docker):
 
 
 async def test_get_run_wrong_project(client, db, fake_docker):
-    project_a = await make_project(db, subdomain="a", name="a", repo="sam-stuhl/a")
-    project_b = await make_project(db, subdomain="b", name="b", repo="sam-stuhl/b")
+    project_a = await make_project(db, subdomain="a", name="a", repo="example-owner/a")
+    project_b = await make_project(db, subdomain="b", name="b", repo="example-owner/b")
     async with db() as session:
         cmd_run = CommandRun(project_id=project_a, command="x", status="running")
         session.add(cmd_run)

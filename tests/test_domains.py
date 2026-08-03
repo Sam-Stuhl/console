@@ -30,7 +30,7 @@ async def test_list_domains_endpoint(client):
 async def test_create_defaults_to_primary_domain(client):
     res = await client.post(
         "/api/projects",
-        json={"name": "a", "repo": "sam-stuhl/a", "subdomain": "app-a"},
+        json={"name": "a", "repo": "example-owner/a", "subdomain": "app-a"},
     )
     assert res.status_code == 201
     body = res.json()
@@ -44,7 +44,7 @@ async def test_create_on_configured_extra_domain(client):
         "/api/projects",
         json={
             "name": "b",
-            "repo": "sam-stuhl/b",
+            "repo": "example-owner/b",
             "subdomain": "app-b",
             "domain": "apps.example.com",
         },
@@ -60,7 +60,7 @@ async def test_create_rejects_unconfigured_domain(client):
         "/api/projects",
         json={
             "name": "c",
-            "repo": "sam-stuhl/c",
+            "repo": "example-owner/c",
             "subdomain": "app-c",
             "domain": "nope.example.com",
         },
@@ -143,7 +143,7 @@ def fake_cf(monkeypatch):
 
 
 async def _make_project(client, **over):
-    body = {"name": "app", "repo": "sam-stuhl/app", "subdomain": "app", **over}
+    body = {"name": "app", "repo": "example-owner/app", "subdomain": "app", **over}
     res = await client.post("/api/projects", json=body)
     assert res.status_code == 201
     return res.json()["id"]

@@ -35,7 +35,7 @@ class ProjectOut(BaseModel):
     subdomain: str
     domain: str  # the base domain it serves under
     created_at: datetime
-    url: str  # where it serves, e.g. https://notion-sync.samstuhl.com
+    url: str  # where it serves, e.g. https://blog.example.com
     protected: bool  # Cloudflare Access login is in front of it
     access_emails: list[str]
     health: str  # live liveness from the monitor: up | down | unknown

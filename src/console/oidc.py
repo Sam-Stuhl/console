@@ -18,7 +18,7 @@ class OidcError(Exception):
 
 
 class WrongOwner(OidcError):
-    """Valid GitHub token, but not for a sam-stuhl repository."""
+    """Valid GitHub token, but not for the configured owner's repository."""
 
 
 _jwks: PyJWKClient | None = None
@@ -46,8 +46,17 @@ def verify(token: str) -> dict:
     except jwt.PyJWTError as exc:
         raise OidcError(f"OIDC token rejected: {exc}") from exc
 
-    # GitHub emits the owner in its canonical case (e.g. "Sam-Stuhl"), but
-    # GitHub identifiers are case-insensitive, so compare that way.
+    # Fail closed. Without a configured owner there is nothing to check the
+    # token against, and accepting it would let any GitHub account deploy here.
+    if not config.OIDC_OWNER:
+        raise OidcError(
+            "OIDC token rejected: no CONSOLE_OIDC_OWNER is set, so the console "
+            "cannot tell whose repos may deploy to it. Set it to your GitHub "
+            "account name and restart."
+        )
+
+    # GitHub emits the owner in its canonical case, but GitHub identifiers are
+    # case-insensitive, so compare that way.
     owner = claims.get("repository_owner") or ""
     if owner.lower() != config.OIDC_OWNER.lower():
         raise WrongOwner(
