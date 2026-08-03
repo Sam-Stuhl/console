@@ -3,7 +3,7 @@
 Executed by hand on 2026-07-09 against Colima. These exact commands are the
 spec for the deploy engine. `traefik/whoami` stands in for an app image:
 `v1.10.1` is the currently-live release, `v1.11.0` is the release being
-deployed. In production the image is `ghcr.io/sam-stuhl/<app>:<sha>` and the
+deployed. In production the image is `ghcr.io/<owner>/<app>:<sha>` and the
 name suffix is the short sha.
 
 ## One-time host setup

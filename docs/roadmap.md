@@ -1,5 +1,8 @@
 # Console roadmap
 
+> **All six items below shipped.** Kept as a record of what was planned and
+> why, not as outstanding work.
+
 Features to add, in priority order. The console's job is to handle the non-code
 aspects of running my projects, so everything here is about doing more of that
 from the web tool instead of the shell.
@@ -12,7 +15,7 @@ Run app maintenance/setup commands from the console instead of a hand-rolled
 "run command" panel that executes in the app's container (or a fresh one from
 its image) and streams the output. Non-interactive first; interactive stdin
 (e.g. typing an SMS code) is a stretch goal. This is the biggest workflow gap
-today — it's what forced the manual `docker run` dance to log banking-dash into
+today, and it's what forced the manual `docker run` dance to log an app into
 Robinhood.
 
 ## 2. Back up the console's own state
@@ -21,7 +24,7 @@ Robinhood.
 `./secrets/console_key` (the Fernet key) are the single point of failure: lose
 the key and everything in the DB is unrecoverable. Automated, encrypted backup
 on a schedule to somewhere off the box (an object bucket, or a private repo).
-Pairs with portability — a backup is effectively a portable snapshot.
+Pairs with portability: a backup is effectively a portable snapshot.
 
 ## 3. Live uptime + alerts
 
@@ -43,7 +46,7 @@ reminder date per credential in Settings, and warn before it lapses.
 
 ## 6. Multiple domains
 
-Today apps serve at `{subdomain}.samstuhl.com` — one hardcoded domain. Support
+Today apps serve at `{subdomain}.<domain>`, one configured domain. Support
 more than one, so a future second domain can host its own apps:
 
 - let a project pick its domain (or full hostname), not just a subdomain
