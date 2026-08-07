@@ -12,9 +12,15 @@ from alembic import context
 config = context.config
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
+#
+# disable_existing_loggers=False is load-bearing, not tidiness. It defaults to
+# True, and migrations run inside the app's lifespan, so the default silences
+# every logger that already exists: uvicorn.access, uvicorn.error, and the
+# console's own. The container then logs its first two startup lines and
+# nothing ever again, not even "Application startup complete", while serving
+# traffic perfectly well. That made the live box undiagnosable.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 from console import config as app_config
 from console.db.models import Base
