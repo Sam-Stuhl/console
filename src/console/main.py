@@ -5,7 +5,8 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
@@ -32,6 +33,8 @@ from console.backup.engine import backup_loop
 from console.deploy.reaper import reaper_loop
 from console.monitor import monitor_loop
 from console.secrets.crypto import KeyNotConfigured
+from console.v1 import rest as v1_rest
+from console.v1.rest import router as v1_router
 
 ROOT = Path(__file__).resolve().parents[2]
 DIST = ROOT / "frontend" / "dist"
@@ -95,6 +98,24 @@ app.include_router(settings_router)
 app.include_router(terminal_router)
 app.include_router(tokens_router)
 app.include_router(validate_router)
+app.include_router(v1_router)
+v1_rest.install_error_handler(app)
+
+
+# The version-scoped spec and its docs page are deliberately NOT token-gated:
+# they describe the shape of the API and carry no data, so an agent can be
+# pointed straight at the spec. Every route that returns anything real needs a
+# token.
+@app.get("/v1/openapi.json", include_in_schema=False)
+async def v1_openapi() -> dict:
+    return v1_rest.openapi_schema()
+
+
+@app.get("/v1/docs", include_in_schema=False)
+async def v1_docs() -> HTMLResponse:
+    return get_swagger_ui_html(
+        openapi_url="/v1/openapi.json", title=f"{v1_rest.TITLE} v{v1_rest.VERSION}"
+    )
 
 
 @app.exception_handler(KeyNotConfigured)
