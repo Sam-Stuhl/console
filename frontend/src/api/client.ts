@@ -233,6 +233,30 @@ export const fetchCredentials = () => getJson<CredentialStatus[]>('/api/credenti
 export const setCredentialExpiry = (key: string, expires_at: string | null) =>
   request<void>(`/api/credentials/${key}/expiry`, jsonInit('PUT', { expires_at }))
 
+export type TokenScope = 'read' | 'write'
+
+export interface ApiToken {
+  id: string
+  name: string
+  preview: string
+  scope: TokenScope
+  created_at: string
+  last_used_at: string | null
+}
+
+/** Only the create response ever carries the token itself. */
+export interface CreatedApiToken extends ApiToken {
+  token: string
+}
+
+export const fetchApiTokens = () => getJson<ApiToken[]>('/api/tokens')
+
+export const createApiToken = (name: string, scope: TokenScope) =>
+  request<CreatedApiToken>('/api/tokens', jsonInit('POST', { name, scope }))
+
+export const revokeApiToken = (id: string) =>
+  request<void>(`/api/tokens/${id}`, jsonInit('DELETE'))
+
 export const fetchBackups = () => getJson<BackupStatus>('/api/backups')
 
 export const runBackupNow = () =>

@@ -16,6 +16,7 @@ import {
   type CredentialStatus,
 } from '../api/client'
 import { formatBytes, since } from '../lib/format'
+import ApiTokensSection from '../components/ApiTokensSection'
 import {
   CollapsibleSection,
   ExpandCollapseAll,
@@ -325,6 +326,12 @@ export default function Settings() {
               topic) before it lapses.
             </p>
             <CredentialExpiry />
+          </CollapsibleSection>
+
+          <CollapsibleSection id="api-tokens" title="api tokens">
+            {/* The console's own origin is the one an agent has to call, and
+                the browser already knows it, scheme included. */}
+            <ApiTokensSection origin={window.location.origin} />
           </CollapsibleSection>
         </div>
 
