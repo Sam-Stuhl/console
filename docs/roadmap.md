@@ -12,8 +12,8 @@ Run app maintenance/setup commands from the console instead of a hand-rolled
 "run command" panel that executes in the app's container (or a fresh one from
 its image) and streams the output. Non-interactive first; interactive stdin
 (e.g. typing an SMS code) is a stretch goal. This is the biggest workflow gap
-today — it's what forced the manual `docker run` dance to log banking-dash into
-Robinhood.
+today: it is what forces a hand-rolled `docker run` whenever an app needs a
+one-time interactive login against a third-party service.
 
 ## 2. Back up the console's own state
 
@@ -43,7 +43,7 @@ reminder date per credential in Settings, and warn before it lapses.
 
 ## 6. Multiple domains
 
-Today apps serve at `{subdomain}.samstuhl.com` — one hardcoded domain. Support
+Today apps serve at `{subdomain}.<your-domain>`, one hardcoded domain. Support
 more than one, so a future second domain can host its own apps:
 
 - let a project pick its domain (or full hostname), not just a subdomain

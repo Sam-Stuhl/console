@@ -3,8 +3,8 @@
 Executed by hand on 2026-07-09 against Colima. These exact commands are the
 spec for the deploy engine. `traefik/whoami` stands in for an app image:
 `v1.10.1` is the currently-live release, `v1.11.0` is the release being
-deployed. In production the image is `ghcr.io/sam-stuhl/<app>:<sha>` and the
-name suffix is the short sha.
+deployed. In production the image is `ghcr.io/<your-account>/<app>:<sha>` and
+the name suffix is the short sha.
 
 ## One-time host setup
 
@@ -120,7 +120,7 @@ docker inspect app-demo-e5f6a7b --format '{{range .Config.Env}}{{println .}}{{en
 4. **Dev health checks cannot succeed from the host.** The engine probes
    `http://<container>:<port><path>` container-to-container over `web`. In
    prod the console is itself a container on that network; in dev (uvicorn
-   on the Mac, containers in Colima) container names do not resolve from
+   on the host, containers in a VM) container names do not resolve from
    the host, so an end-to-end deploy in dev always fails at step 3 and
    exercises the failure path instead. Deliberately no config escape hatch:
    a dev-only code path that never runs in prod would be worse. To see the
