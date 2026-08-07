@@ -40,6 +40,29 @@ OIDC_OWNER = os.environ.get("CONSOLE_OIDC_OWNER", "")
 # own fork if you maintain one.
 WORKFLOW_REPO = os.environ.get("CONSOLE_WORKFLOW_REPO", "Sam-Stuhl/console")
 
+# Outbound GitHub access: listing the operator's repos when registering a
+# project, and reading a repo's console.toml for a deploy CI did not drive.
+# This is a credential the console uses to call GitHub, never a way to log in
+# to the console; Cloudflare Access remains the only inbound gate.
+#
+# The client id has no default on purpose. This is a public project, so a
+# shipped default would make the upstream author the OAuth trust anchor for
+# every install; each operator registers their own OAuth app (device flow
+# enabled) instead. Unset simply turns the feature off.
+GITHUB_CLIENT_ID = os.environ.get("CONSOLE_GITHUB_CLIENT_ID", "")
+# Overridable like CONSOLE_CF_API_BASE, so the client can be pointed at a
+# stand-in during development. Nothing but a test should ever change it.
+GITHUB_API = os.environ.get("CONSOLE_GITHUB_API", "https://api.github.com")
+GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+# Listing private repos needs the coarse "repo" scope: OAuth apps cannot
+# express anything narrower. A GitHub App could (per-repo, read-only) and is
+# the upgrade path if that ever matters.
+GITHUB_SCOPE = "repo"
+GITHUB_TIMEOUT = 15  # per-request HTTP timeout
+GITHUB_PAGE_SIZE = 100  # one page of repos or branches; the pickers are not browsers
+GITHUB_FILE_MAX_BYTES = 256 * 1024  # a console.toml is a few hundred bytes
+
 # Deploy engine. Router priorities count down from PRIORITY_START so the
 # live container's router always outranks its unverified replacement.
 PRIORITY_START = 4_000_000_000
