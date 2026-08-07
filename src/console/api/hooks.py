@@ -15,19 +15,11 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import config, oidc
+from console import oidc
 from console.db.models import Deployment, Project, utcnow
 from console.db.session import get_session
-from console.deploy import engine as deploy_engine
+from console.deploy import engine as deploy_engine, plan
 from console.schema.console_toml import ConfigError, parse_console_toml
-
-
-def _image_prefix() -> str:
-    """Images must come from the configured owner's GHCR namespace. Derived
-    from CONSOLE_OIDC_OWNER so a build cannot smuggle in a third party's
-    image, and so this holds for whoever runs the console."""
-    return f"ghcr.io/{config.OIDC_OWNER.lower()}/"
-
 
 router = APIRouter(prefix="/hooks")
 
@@ -163,14 +155,16 @@ async def build_finished(
     parsed = None
     if body.conclusion != "success":
         failure = f"build failed (conclusion: {body.conclusion})"
-    elif not body.image or not body.image.lower().startswith(_image_prefix()):
-        failure = f"image ref missing or not under {_image_prefix()}"
-    elif not body.console_toml:
-        failure = "build succeeded but no console.toml was sent"
     else:
+        # The image rule is shared with the manual deploy path, so a build
+        # cannot smuggle in an image a person would not be allowed to deploy.
+        # ConfigError is a ValueError, so one except covers both checks.
         try:
+            plan.validate_image(body.image or "")
+            if not body.console_toml:
+                raise ConfigError("build succeeded but no console.toml was sent")
             parsed, warnings = parse_console_toml(body.console_toml)
-        except ConfigError as exc:
+        except ValueError as exc:
             failure = str(exc)
 
     if failure is not None:
@@ -186,11 +180,6 @@ async def build_finished(
     for warning in warnings:
         deployment.log = (deployment.log or "") + f"warning: {warning}\n"
 
-    # Flush so a row created in this request has its id assigned; the
-    # sweep below must be able to exclude it.
-    await session.flush()
-    await deploy_engine.supersede_older_queued(session, project.id, deployment.id)
-    await session.commit()
-    deploy_engine.enqueue(deployment.id)
+    await deploy_engine.queue(session, deployment)
     response.status_code = 202
     return {"deployment_id": deployment.id, "status": "queued"}

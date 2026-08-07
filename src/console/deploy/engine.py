@@ -44,6 +44,20 @@ def enqueue(deployment_id: str) -> None:
     task.add_done_callback(_tasks.discard)
 
 
+async def queue(session: AsyncSession, deployment: Deployment) -> None:
+    """Make this row the project's one queued deployment and start it.
+
+    Every way into the pipeline ends here: the build webhook, rollback,
+    redeploy, and deploying an image by hand. They differ in where the image
+    and config came from, never in how a deploy is started."""
+    # Flush first: a row created in this request needs its id assigned before
+    # the sweep below can exclude it.
+    await session.flush()
+    await supersede_older_queued(session, deployment.project_id, deployment.id)
+    await session.commit()
+    enqueue(deployment.id)
+
+
 async def supersede_older_queued(
     session: AsyncSession, project_id: str, keep_id: str
 ) -> None:
