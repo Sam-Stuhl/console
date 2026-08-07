@@ -120,21 +120,21 @@ usually do.
 ## Using it from an AI agent
 
 `/mcp` is a Model Context Protocol server over streamable HTTP, with a tool per
-endpoint. For Claude Code, in `.mcp.json`:
+endpoint. For Claude Code:
 
-```json
-{
-  "mcpServers": {
-    "console": {
-      "type": "http",
-      "url": "https://console.<your-domain>/mcp",
-      "headers": { "Authorization": "Bearer csk_your_token" }
-    }
-  }
-}
+```bash
+claude mcp add --transport http --scope user console \
+  https://console.<your-domain>/mcp --header "Authorization: Bearer csk_your_token"
 ```
 
-Settings -> **api tokens** -> **connect an agent** has this snippet prefilled
+`--scope user` registers it once for every project on that machine, which is
+usually what you want: the console is *about* your projects, so the tools are
+most useful from inside one of them. It also keeps the token in your own config
+rather than in a repo. Project scope writes `.mcp.json`, which is meant to be
+committed, so it is the wrong home for a credential. Drop the flag to add the
+server to just the current project, and check either with `claude mcp list`.
+
+Settings -> **api tokens** -> **connect an agent** has this command prefilled
 with your console's real URL.
 
 The server ships instructions telling an agent how to work the console: start
