@@ -44,6 +44,19 @@ def enqueue(deployment_id: str) -> None:
     task.add_done_callback(_tasks.discard)
 
 
+async def queue(session: AsyncSession, deployment: Deployment) -> None:
+    """Hand a newly-added deployment row to the engine.
+
+    Every way to start a deploy ends here: a build webhook, a rollback, a
+    redeploy, and the same three driven over /v1. The caller has added the row
+    and set its fields; this flushes so it has an id, supersedes any older
+    queued row, commits, and spawns the deploy task."""
+    await session.flush()
+    await supersede_older_queued(session, deployment.project_id, deployment.id)
+    await session.commit()
+    enqueue(deployment.id)
+
+
 async def supersede_older_queued(
     session: AsyncSession, project_id: str, keep_id: str
 ) -> None:

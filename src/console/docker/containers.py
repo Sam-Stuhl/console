@@ -3,6 +3,7 @@ so they can be tested against canned payloads without a Docker daemon."""
 
 from console import config
 from console.docker.client import get_client, run
+from console.errors import Conflict
 
 MASK = "••••••••"
 
@@ -113,6 +114,21 @@ async def list_project_containers(project_id: str, include_stopped: bool = False
         all=include_stopped,
         filters={"label": f"console.project={project_id}"},
     )
+
+
+async def sole_project_container(project_id: str):
+    """The project's one container, for an operation that must act on exactly
+    one. Refuses mid-deploy, when two exist, so an action can never hit the
+    wrong one, and refuses when there is none.
+
+    Stopped containers count: `start` acts on one that is not running and so
+    would be invisible to find_project_container."""
+    containers = await list_project_containers(project_id, include_stopped=True)
+    if not containers:
+        raise Conflict("no container for this app; deploy it first")
+    if len(containers) > 1:
+        raise Conflict("a deploy is in progress; try again shortly")
+    return containers[0]
 
 
 async def get_container(container_id: str) -> dict:

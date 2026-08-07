@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from console.api.projects import get_project
 from console.db.models import Deployment
 from console.db.session import get_session
-from console.deploy import engine as deploy_engine
+from console.deploy import engine as deploy_engine, history
 
 router = APIRouter(prefix="/api/projects/{project_id}/deployments")
 
@@ -91,33 +91,16 @@ async def rollback(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     target = await _get_deployment(session, project_id, deployment_id)
-    if target.status == "live":
-        raise HTTPException(status_code=409, detail="this build is already live")
-    served = target.status == "superseded" and target.deploy_started_at is not None
-    if not served:
+    problem = history.rollback_error(target)
+    if problem is not None:
+        # Already-live is a state conflict; everything else is a bad target.
         raise HTTPException(
-            status_code=400,
-            detail="can only roll back to a build that served traffic",
-        )
-    if not target.image or not target.config_snapshot:
-        raise HTTPException(
-            status_code=400, detail="target has no image or config snapshot"
+            status_code=409 if target.status == "live" else 400, detail=problem
         )
 
-    deployment = Deployment(
-        project_id=project_id,
-        sha=target.sha,
-        commit_message=f"rollback to {target.sha[:7]}",
-        image=target.image,
-        config_snapshot=target.config_snapshot,
-        run_url=target.run_url,
-        status="queued",
-    )
+    deployment = history.clone(target, f"rollback to {target.sha[:7]}")
     session.add(deployment)
-    await session.flush()
-    await deploy_engine.supersede_older_queued(session, project_id, deployment.id)
-    await session.commit()
-    deploy_engine.enqueue(deployment.id)
+    await deploy_engine.queue(session, deployment)
     return {"deployment_id": deployment.id, "status": "queued"}
 
 
@@ -132,25 +115,14 @@ async def redeploy(
     built (retry once the cause is fixed) or the live one (pick up changed
     secrets/env). Env is reassembled from current secrets at run time."""
     target = await _get_deployment(session, project_id, deployment_id)
-    if target.status in ("queued", "building", "deploying"):
-        raise HTTPException(status_code=409, detail="this deployment is still in progress")
-    if not target.image or not target.config_snapshot:
+    problem = history.redeploy_error(target)
+    if problem is not None:
         raise HTTPException(
-            status_code=400, detail="this build produced no image to redeploy"
+            status_code=409 if target.status in history.IN_FLIGHT else 400,
+            detail=problem,
         )
 
-    deployment = Deployment(
-        project_id=project_id,
-        sha=target.sha,
-        commit_message=f"redeploy of {target.sha[:7]}",
-        image=target.image,
-        config_snapshot=target.config_snapshot,
-        run_url=target.run_url,
-        status="queued",
-    )
+    deployment = history.clone(target, f"redeploy of {target.sha[:7]}")
     session.add(deployment)
-    await session.flush()
-    await deploy_engine.supersede_older_queued(session, project_id, deployment.id)
-    await session.commit()
-    deploy_engine.enqueue(deployment.id)
+    await deploy_engine.queue(session, deployment)
     return {"deployment_id": deployment.id, "status": "queued"}

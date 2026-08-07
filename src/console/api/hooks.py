@@ -186,11 +186,6 @@ async def build_finished(
     for warning in warnings:
         deployment.log = (deployment.log or "") + f"warning: {warning}\n"
 
-    # Flush so a row created in this request has its id assigned; the
-    # sweep below must be able to exclude it.
-    await session.flush()
-    await deploy_engine.supersede_older_queued(session, project.id, deployment.id)
-    await session.commit()
-    deploy_engine.enqueue(deployment.id)
+    await deploy_engine.queue(session, deployment)
     response.status_code = 202
     return {"deployment_id": deployment.id, "status": "queued"}
