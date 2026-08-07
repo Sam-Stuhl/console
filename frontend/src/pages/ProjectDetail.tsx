@@ -122,13 +122,18 @@ export default function ProjectDetail() {
         </Section>
       )}
 
-      {!needsSetup && (
-        <Section title="deployments">
-          {id && (
-            <DeploymentsSection projectId={id} branch={project?.branch ?? 'main'} />
-          )}
-        </Section>
-      )}
+      {/* Always shown, even before the first deploy: this is where an image
+          that is already built gets deployed, which is the only way in for a
+          project whose CI has not run or is broken. */}
+      <Section title="deployments">
+        {id && project && (
+          <DeploymentsSection
+            projectId={id}
+            branch={project.branch}
+            imageHint={project.image_hint}
+          />
+        )}
+      </Section>
 
       {!needsSetup && (
         <Section title="run command">
