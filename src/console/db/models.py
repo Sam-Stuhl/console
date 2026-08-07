@@ -13,6 +13,15 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def naive_utc(value: datetime) -> datetime:
+    """SQLite round-trips datetimes naive while utcnow() is timezone-aware, so
+    anything comparing a stored timestamp against now has to flatten both sides
+    first or it raises."""
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -136,6 +145,28 @@ class Setting(Base):
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value_encrypted: Mapped[bytes] = mapped_column(LargeBinary)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class ApiToken(Base):
+    """A credential for the machine-facing /v1 surface: what a script or an AI
+    agent presents in place of the browser login the console's own SPA gets from
+    Cloudflare Access.
+
+    Only the SHA-256 hash is stored. A token is verified, never read back, so
+    unlike a Secret it is not Fernet-encrypted: the console cannot show one
+    again after minting, and a stolen database yields nothing usable. preview
+    holds the token's first few characters purely so the UI can tell two tokens
+    apart; it is far too short to be guessed from."""
+
+    __tablename__ = "api_tokens"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(Text)
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)
+    preview: Mapped[str] = mapped_column(Text)
+    scope: Mapped[str] = mapped_column(Text)  # read|write
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_used_at: Mapped[datetime | None]
 
 
 class Secret(Base):

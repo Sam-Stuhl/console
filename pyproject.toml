@@ -15,6 +15,7 @@ dependencies = [
     "pydantic",
     "pyjwt[crypto]",
     "httpx",
+    "mcp>=2.0",
 ]
 
 [project.optional-dependencies]

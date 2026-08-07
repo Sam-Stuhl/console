@@ -8,8 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from console import appicon, cloudflare, config, domains
-from console.db.models import Deployment, Project, ProjectHealth
+from console.db.models import Project, ProjectHealth
 from console.db.session import get_session
+from console.deploy.history import deploy_state
 from console.schema.console_toml import validate_subdomain_format
 from console.starters import starter_files
 
@@ -94,24 +95,6 @@ def _out(
     )
 
 
-async def _deploy_state(session: AsyncSession) -> tuple[dict[str, str], set[str]]:
-    """Per project: the latest deployment's status, and which have a live one.
-    One pass over deployment rows, newest first, so the first status seen per
-    project is its latest."""
-    rows = await session.execute(
-        select(Deployment.project_id, Deployment.status).order_by(
-            Deployment.created_at.desc()
-        )
-    )
-    latest: dict[str, str] = {}
-    live: set[str] = set()
-    for project_id, status in rows:
-        latest.setdefault(project_id, status)
-        if status == "live":
-            live.add(project_id)
-    return latest, live
-
-
 async def get_project(project_id: str, session: AsyncSession) -> Project:
     project = await session.get(Project, project_id)
     if project is None:
@@ -124,7 +107,7 @@ async def list_projects(session: AsyncSession = Depends(get_session)) -> list[Pr
     projects = (await session.scalars(select(Project).order_by(Project.created_at))).all()
     health_rows = await session.scalars(select(ProjectHealth))
     health = {h.project_id: h.state for h in health_rows}
-    latest, live = await _deploy_state(session)
+    latest, live = await deploy_state(session)
     return [
         _out(p, health.get(p.id, "unknown"), latest.get(p.id), p.id in live)
         for p in projects
@@ -179,7 +162,7 @@ async def get_one(
 ) -> ProjectOut:
     project = await get_project(project_id, session)
     health = await session.get(ProjectHealth, project_id)
-    latest, live = await _deploy_state(session)
+    latest, live = await deploy_state(session)
     return _out(
         project,
         health.state if health else "unknown",

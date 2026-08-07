@@ -1,7 +1,7 @@
 # Server setup
 
-Stand up the console on the Windows home server, behind Cloudflare, with the
-deploy pipeline live. When this is done, `console.samstuhl.com` shows the
+Stand up the console on your server, behind Cloudflare, with the deploy
+pipeline live. When this is done, `console.<your-domain>` shows the
 console (gated by Cloudflare Access), GitHub can POST to `/hooks`, and
 pushing an app repo deploys it. Once it is up, **Settings** also configures the
 operational extras in the browser, no files or restarts: private-image pulls,
@@ -16,10 +16,16 @@ the container. See "Updating the console later" at the end for the manual
 override, and `remote-access.md` for reaching the box from elsewhere once it
 is up.
 
-> Confirm the real domain first. CLAUDE.md flags `samstuhl.com` as an
-> unverified spelling. Check it against your registrar before the Cloudflare
-> steps; if it differs, adjust `CONSOLE_DOMAIN` and the Traefik label in
-> `compose.prod.yaml` and the hostnames below.
+> Throughout, `<your-domain>` is the domain you will serve from and
+> `<your-account>` is your GitHub account. Neither is baked into the console:
+> they are `CONSOLE_DOMAIN` and `CONSOLE_OIDC_OWNER`. Confirm the domain's exact
+> spelling against your registrar before the Cloudflare steps, and set it in
+> `CONSOLE_DOMAIN` and the Traefik label in `compose.prod.yaml`.
+>
+> The commands below are written for a **Windows** host, which is what this
+> runbook was first executed on. Everything the console needs is Docker plus a
+> shell, so the steps carry over to macOS or Linux with the obvious
+> substitutions (paths, and `bash` instead of PowerShell).
 
 ## Prerequisites
 
@@ -75,7 +81,7 @@ already gitignored).
 
 ## 3. Create the Cloudflare tunnel
 
-The tunnel is the only way in; nothing is exposed on the PC or your LAN.
+The tunnel is the only way in; nothing is exposed on the server or your LAN.
 
 1. Cloudflare **Zero Trust** dashboard -> **Networks -> Tunnels -> Create a
    tunnel** -> connector **Cloudflared** -> name it (e.g. `home-server`).
@@ -84,8 +90,8 @@ The tunnel is the only way in; nothing is exposed on the PC or your LAN.
    dashboards, **HTTP**, service **`traefik:80`**). cloudflared runs in the
    compose network and reaches Traefik by name; Traefik routes each request
    to the right container by its Host header.
-   - `console.samstuhl.com` -> the console itself.
-   - `*.samstuhl.com` (a wildcard) -> every future app becomes reachable with
+   - `console.<your-domain>` -> the console itself.
+   - `*.<your-domain>` (a wildcard) -> every future app becomes reachable with
      no further tunnel changes: register it in the console, deploy, and
      Traefik routes its subdomain by the label the deploy engine sets. The
      console never touches Cloudflare.
@@ -95,7 +101,7 @@ The tunnel is the only way in; nothing is exposed on the PC or your LAN.
 
    **Keep the wildcard LAST in the hostname list.** cloudflared evaluates these
    rules top to bottom and the first match wins; it does *not* prefer the more
-   specific hostname. So `*.samstuhl.com` swallows every hostname listed below
+   specific hostname. So `*.<your-domain>` swallows every hostname listed below
    it, and the explicit `console` route only works because it sits above the
    wildcard. Any hostname you add later lands at the bottom, under the wildcard,
    and is silently dead on arrival: the wildcard sends it to Traefik, which has
@@ -122,11 +128,26 @@ bypass Access while everything else requires your login.
 Zero Trust -> **Access -> Applications**. Create **two** self-hosted apps
 (Cloudflare evaluates the more specific path first):
 
-- **App A, the webhooks**: hostname `console.samstuhl.com`, path `hooks`.
+- **App A, the webhooks**: hostname `console.<your-domain>`, path `hooks`.
   One policy, action **Bypass**, include **Everyone**. (Safe: the console
-  rejects any call whose OIDC token is not owned by Sam-Stuhl.)
-- **App B, the console UI**: hostname `console.samstuhl.com`, no path.
+  rejects any call whose OIDC token is not owned by the account in
+  `CONSOLE_OIDC_OWNER`.)
+- **App B, the console UI**: hostname `console.<your-domain>`, no path.
   One policy, action **Allow**, include your email.
+
+If you want scripts or AI agents to reach the console (see `docs/api.md`), add
+one Bypass app per machine path, the same shape as App A:
+
+- **App A2**: hostname `console.<your-domain>`, path `v1`
+- **App A3**: hostname `console.<your-domain>`, path `mcp`
+
+Both authenticate themselves with a console-issued API token, which is why they
+can bypass Access. Understand the trade before you add them: **these two paths
+are then reachable from the whole internet, and your token is the only thing in
+front of your projects, deploys, logs, and app controls.** Skip this step if you
+only ever call the API from the box itself; mint tokens with `read` scope unless
+a caller genuinely needs to change something, and revoke any token you cannot
+account for.
 
 Every other app subdomain is public by default (the wildcard route sends it
 to Traefik). To put the same login in front of a specific app, flip the
@@ -139,22 +160,29 @@ Then add a rate limit so nobody can flood `/hooks` with wrong-owner calls
 (each costs the console a token verification):
 
 - Security -> **WAF -> Rate limiting rules -> Create**:
-  - When: `hostname` equals `console.samstuhl.com` **and** URI path starts
+  - When: `hostname` equals `console.<your-domain>` **and** URI path starts
     with `/hooks`
   - Then: **Block**, at **20 requests per 1 minute** per client IP.
   (Far above your real volume; tune later if needed.)
 
+If you added the `v1` and `mcp` bypasses above, give them a rate limit too:
+same rule shape, URI path starting with `/v1` or `/mcp`, blocking at a few
+hundred requests per minute. An agent polling a deploy is chatty, so keep this
+looser than the `/hooks` limit.
+
 ## 5. Make the console image pullable
 
-CI publishes `ghcr.io/sam-stuhl/console:latest` on every push to `main`
-(check the repo's **Actions** tab for a green "build console image" run).
+CI publishes `ghcr.io/<your-account>/console:latest` on every push to `main`
+(the workflow derives that from your own repository, so a fork publishes under
+its own account; check the repo's **Actions** tab for a green "build console
+image" run).
 GHCR packages start **private**, so either:
 
 - **Make it public** (simplest, no auth for the console): GitHub -> your
   profile -> **Packages -> console -> Package settings -> Change visibility
   -> Public**. Do this once, or
 - **Keep it private** and log in on the server: `docker login ghcr.io -u
-  Sam-Stuhl` and paste a `read:packages` PAT. (This covers only the console's
+  <your-account>` and paste a `read:packages` PAT. (This covers only the console's
   own image; private *app* images use the console Settings token in step 9.)
 
 ## 6. Bring it up
@@ -174,13 +202,13 @@ for the uvicorn "Application startup complete" line.
   docker run --rm --network web curlimages/curl -s -o /dev/null -w "%{http_code}\n" http://console:8000/api/projects
   ```
   Expect `200`.
-- **Through the tunnel:** open `https://console.samstuhl.com`. Cloudflare
+- **Through the tunnel:** open `https://console.<your-domain>`. Cloudflare
   Access prompts for your login, then the console loads.
 - **The webhook path bypasses Access:** the webhooks are POST-only, so send
   a POST (a GET has no route and falls through to the SPA, returning `200`
   index.html, which tells you nothing):
   ```
-  curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Content-Type: application/json" -d "{}" https://console.samstuhl.com/hooks/build-started
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Content-Type: application/json" -d "{}" https://console.<your-domain>/hooks/build-started
   ```
   Expect `401` (the console reached it and rejected it for no token). If you
   get a `302` to an Access **login page** instead, App A's path/Bypass is
@@ -255,7 +283,7 @@ telling you exactly this.
 
 **Cloudflare Access** (gate an app's hostname with a login). A project's
 **access** toggle then creates or removes a self-hosted Access app for
-`{subdomain}.samstuhl.com` with an Allow policy for the emails you list;
+`{subdomain}.<your-domain>` with an Allow policy for the emails you list;
 turning it off deletes the app (the site goes public again). It manages Access
 apps only, never DNS, the tunnel, or routing.
 
@@ -283,7 +311,7 @@ first two are worth doing on day one.
 Fernet key). Lose the key and every stored secret is gone, so this is the backup
 that matters.
 
-1. Create a **private** GitHub repo for backups, e.g. `Sam-Stuhl/console-backups`.
+1. Create a **private** GitHub repo for backups, e.g. `<your-account>/console-backups`.
 2. Make a fine-grained PAT scoped to that one repo with **Contents: Read and
    write** (a classic token with `repo` also works).
 3. Console -> **Settings -> backups**: set a **passphrase** (generate one and
@@ -373,7 +401,7 @@ the short sha of its commit to `main`, so pick one from the **Actions** tab or
 the package's version list. In PowerShell:
 
 ```
-$env:CONSOLE_IMAGE = "ghcr.io/sam-stuhl/console:1a2b3c4"
+$env:CONSOLE_IMAGE = "ghcr.io/<your-account>/console:1a2b3c4"
 docker compose -f compose.prod.yaml up -d console
 ```
 
@@ -393,12 +421,12 @@ type on, so running it remotely would start the console on a blank database.
 - **Docker socket on Windows:** the `/var/run/docker.sock` bind mount works
   under the WSL2 backend. It gives the console full control of Docker, which
   is by design (it is the control plane), the same access Traefik needs.
-- **No host ports:** nothing is published to the PC. To debug without the
+- **No host ports:** nothing is published to the server's host. To debug without the
   tunnel, temporarily add `ports: ["80:80"]` to the Traefik service, or curl
   from inside the `web` network as in step 7.
 - **Reaching the box from elsewhere:** `remote-access.md` sets up SSH over this
   same tunnel plus a remote Docker context, so you can inspect and restart
-  containers from the Mac without being at the PC. It needs no new inbound port
+  containers from your workstation without being at the server. It needs no new inbound port
   and no new service here.
 - **Container terminal:** the per-app terminal is the one websocket in the app
   (everything else polls). Cloudflare tunnels proxy websockets by default, and it

@@ -43,6 +43,12 @@ services:
     restart: unless-stopped
 
   console:
+    # The upstream published image, on purpose: a fresh install should come up
+    # without forking or building anything. This is the one place a specific
+    # account is not a personalization to strip, it is where the project ships
+    # from. Fork and run the build workflow and CI publishes under your own
+    # account instead; point CONSOLE_IMAGE at that, or at an older tag to
+    # roll back.
     image: ${CONSOLE_IMAGE:-ghcr.io/sam-stuhl/console:latest}
     container_name: console
     depends_on: [traefik]

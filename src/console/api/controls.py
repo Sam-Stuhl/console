@@ -11,7 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from console.api.projects import get_project
 from console.db.session import get_session
 from console.docker.client import get_client, run
-from console.docker.containers import list_project_containers, shape_container
+from console.docker.containers import (
+    list_project_containers,
+    shape_container,
+    sole_project_container,
+)
+from console.errors import Conflict
 
 router = APIRouter(prefix="/api/projects/{project_id}")
 
@@ -19,18 +24,12 @@ ACTIONS = ("start", "stop", "restart")
 
 
 async def _sole_container(project_id: str):
-    """The project's one container, or an HTTPException. Refuses when a deploy is
-    mid-flight (two containers) so an action never hits the wrong one."""
-    containers = await list_project_containers(project_id, include_stopped=True)
-    if not containers:
-        raise HTTPException(
-            status_code=409, detail="no container for this app; deploy it first"
-        )
-    if len(containers) > 1:
-        raise HTTPException(
-            status_code=409, detail="a deploy is in progress; try again shortly"
-        )
-    return containers[0]
+    """The project's one container, as an HTTPException-speaking wrapper around
+    the shared lookup."""
+    try:
+        return await sole_project_container(project_id)
+    except Conflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.get("/container")

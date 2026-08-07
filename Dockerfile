@@ -29,9 +29,12 @@ COPY --from=frontend /build/dist ./frontend/dist
 # Without it Python block-buffers stdout when it is a pipe, and the container
 # looks silent: requests that plainly happened leave no trace, which makes
 # anything on the box undiagnosable.
+#
+# No CONSOLE_DOMAIN or CONSOLE_OIDC_OWNER default: those are per-deployment and
+# compose.prod.yaml requires both. An image that shipped one operator's domain
+# would hand it to every install that forgot to set its own.
 ENV PYTHONUNBUFFERED=1 \
     CONSOLE_DB_PATH=/data/console.db \
-    CONSOLE_DOMAIN=samstuhl.com \
     CONSOLE_OIDC_AUDIENCE=console \
     CONSOLE_KEY_FILE=/run/secrets/console_key
 EXPOSE 8000

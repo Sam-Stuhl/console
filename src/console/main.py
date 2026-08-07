@@ -5,7 +5,8 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
@@ -23,6 +24,7 @@ from console.api.projects import router as projects_router
 from console.api.secrets import router as secrets_router
 from console.api.settings import router as settings_router
 from console.api.terminal import router as terminal_router
+from console.api.tokens import router as tokens_router
 from console.api.validate import router as validate_router
 from console.db.models import CommandRun, Deployment, utcnow
 from console.db.session import SessionLocal
@@ -32,6 +34,11 @@ from console.backup.engine import backup_loop
 from console.deploy.reaper import reaper_loop
 from console.monitor import monitor_loop
 from console.secrets.crypto import KeyNotConfigured
+from console.v1 import mcp as v1_mcp, rest as v1_rest
+from console.v1.rest import router as v1_router
+
+# Built at import time so the lifespan below can run the session manager.
+_mcp_sessions = v1_mcp.build_transport()
 
 ROOT = Path(__file__).resolve().parents[2]
 DIST = ROOT / "frontend" / "dist"
@@ -72,7 +79,10 @@ async def lifespan(_app: FastAPI):
     reaper = asyncio.create_task(reaper_loop())
     backups = asyncio.create_task(backup_loop())
     monitor = asyncio.create_task(monitor_loop())
-    yield
+    # The MCP transport keeps per-client sessions, which need a running manager;
+    # without this every /mcp request fails.
+    async with _mcp_sessions.run():
+        yield
     for task in (reaper, backups, monitor):
         task.cancel()
         with suppress(asyncio.CancelledError):
@@ -94,7 +104,29 @@ app.include_router(projects_router)
 app.include_router(secrets_router)
 app.include_router(settings_router)
 app.include_router(terminal_router)
+app.include_router(tokens_router)
 app.include_router(validate_router)
+app.include_router(v1_router)
+v1_rest.install_error_handler(app)
+# Middleware rather than a mount: it has to answer the bare /mcp, which
+# Starlette's Mount does not match, and it must run before the SPA catch-all.
+app.add_middleware(v1_mcp.McpGate)
+
+
+# The version-scoped spec and its docs page are deliberately NOT token-gated:
+# they describe the shape of the API and carry no data, so an agent can be
+# pointed straight at the spec. Every route that returns anything real needs a
+# token.
+@app.get("/v1/openapi.json", include_in_schema=False)
+async def v1_openapi() -> dict:
+    return v1_rest.openapi_schema()
+
+
+@app.get("/v1/docs", include_in_schema=False)
+async def v1_docs() -> HTMLResponse:
+    return get_swagger_ui_html(
+        openapi_url="/v1/openapi.json", title=f"{v1_rest.TITLE} v{v1_rest.VERSION}"
+    )
 
 
 @app.exception_handler(KeyNotConfigured)

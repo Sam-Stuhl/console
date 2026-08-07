@@ -1,15 +1,16 @@
 # Remote access
 
-Reach the server from the Mac, from anywhere: a real shell on the box, and
-`docker --context homebox ps` against the live engine. This closes the gap the
+Reach the server from your workstation, from anywhere: a real shell on the box,
+and `docker --context homebox ps` against the live engine. This closes the gap the
 rest of the repo already assumes is closed. `build.yml` justifies its own
 safety with "remote docker can always re-pin the last good tag", and CLAUDE.md
 makes an independent way in part of the design, so that a bad console build can
 never leave the console as the only way to reach the server.
 
 SSH rides the **existing** Cloudflare tunnel and is gated by Access, so this
-adds no inbound port, no router change, and no new always-on service on the PC.
-The only thing that lands on the box is a **public** key, which is not a secret.
+adds no inbound port, no router change, and no new always-on service on the
+server. The only thing that lands on the box is a **public** key, which is not
+a secret.
 
 > **What this is not.** `cloudflared` runs as a container. If Docker Desktop is
 > down, the tunnel is down and this SSH path is down with it, exactly when you
@@ -19,16 +20,16 @@ The only thing that lands on the box is a **public** key, which is not a secret.
 > that case is the ops button below, which rides the Actions runner instead (a
 > native Windows service, a different failure domain).
 
-The work splits in two. Part 1 needs only the Mac and a browser. Part 2 needs
-you physically at the PC. Nothing in Part 1 works until Part 2 is done, so do
-them in order and save the verifying for Part 3.
+The work splits in two. Part 1 needs only your workstation and a browser.
+Part 2 needs you physically at the server. Nothing in Part 1 works until Part 2
+is done, so do them in order and save the verifying for Part 3.
 
-## Part 1: on the Mac
+## Part 1: on your workstation
 
 ### 1. Generate a key
 
 ```
-ssh-keygen -t ed25519 -f ~/.ssh/homebox_ed25519 -C "mac -> homebox"
+ssh-keygen -t ed25519 -f ~/.ssh/homebox_ed25519 -C "workstation -> homebox"
 ```
 
 Give it a passphrase. That encrypts the private key file at rest, so a stolen
@@ -43,7 +44,7 @@ This matters more than it looks: `docker --context` opens a fresh SSH
 connection per command, so without the agent every `docker ps` would prompt.
 
 Two files now exist. `homebox_ed25519` is the private key and never leaves this
-Mac, not even during login. `homebox_ed25519.pub` is the public key and is the
+workstation, not even during login. `homebox_ed25519.pub` is the public key and is the
 only half that goes on the server.
 
 ### 2. Install cloudflared
@@ -58,7 +59,7 @@ Add to `~/.ssh/config` (create it if absent):
 
 ```
 Host homebox
-  HostName ssh.samstuhl.com
+  HostName ssh.<your-domain>
   User Sam
   IdentityFile ~/.ssh/homebox_ed25519
   IdentitiesOnly yes
@@ -89,18 +90,18 @@ the box is never touched.
 **Route it.** Zero Trust -> **Networks -> Tunnels** -> your tunnel -> **Public
 Hostname -> Add a public hostname**:
 
-- Subdomain `ssh`, Domain `samstuhl.com`, no path
+- Subdomain `ssh`, Domain `<your-domain>`, no path
 - **Service URL** `ssh://host.docker.internal:22`
-- **Then move `*.samstuhl.com` back to the bottom of the list.** See below.
+- **Then move `*.<your-domain>` back to the bottom of the list.** See below.
 
 **The wildcard will eat this route if you let it.** cloudflared matches ingress
 rules top to bottom, first match wins, and does *not* prefer the more specific
 hostname. A new hostname is appended to the end, which puts it *under*
-`*.samstuhl.com`, so it never matches its own rule: the wildcard hands it to
+`*.<your-domain>`, so it never matches its own rule: the wildcard hands it to
 Traefik, which has no router for it and 404s. The dashboard has no reorder
-control, so delete the `*.samstuhl.com` hostname and re-add it (`*` /
-`samstuhl.com` / `http://traefik:80`), which appends it after the SSH rule. The
-list must end up console, ssh, then the wildcard last. `console.samstuhl.com`
+control, so delete the `*.<your-domain>` hostname and re-add it (`*` /
+`<your-domain>` / `http://traefik:80`), which appends it after the SSH rule. The
+list must end up console, ssh, then the wildcard last. `console.<your-domain>`
 keeps working throughout, since it has its own rule above the wildcard.
 
 The dashboard has a single **Service URL** field where the scheme *is* the
@@ -121,7 +122,7 @@ provides that name automatically.
 **Gate it.** Zero Trust -> **Access -> Applications** -> **Add an application**
 -> **Self-hosted**:
 
-- Hostname `ssh.samstuhl.com`
+- Hostname `ssh.<your-domain>`
 - One policy, action **Allow**, include your email.
 - Set a long **session duration** (a month is reasonable), or `docker` will
   bounce you to a browser login far too often.
@@ -138,11 +139,12 @@ is the one that matters:
 
 ```
 ssh -G homebox | grep -E "hostname|user|proxycommand"   # config resolves
-dig +short ssh.samstuhl.com                             # Cloudflare IPs, same as the console's
-curl -s -o /dev/null -D - https://ssh.samstuhl.com | grep -i location
+dig +short ssh.<your-domain>                             # Cloudflare IPs, same as the console's
+curl -s -o /dev/null -D - https://ssh.<your-domain> | grep -i location
 ```
 
-That last one must redirect to `cloudflareaccess.com/cdn-cgi/access/login/ssh.samstuhl.com`.
+That last one must redirect to
+`cloudflareaccess.com/cdn-cgi/access/login/ssh.<your-domain>`.
 A redirect means the Access app is live and the route is **not** open to the
 internet. Anything else (a timeout, a 502, no redirect) means the gate is not
 on, and you should fix that before starting sshd in Part 2.
@@ -155,9 +157,9 @@ so the ssh-level error is identical whether the route is wrong or the origin is
 simply absent. It tells you nothing. Read the HTTP status underneath instead:
 
 ```
-TOK=$(cat ~/.cloudflared/ssh.samstuhl.com-*-token)
-curl -s -o /dev/null -w "%{http_code}\n" -H "Cookie: CF_Authorization=$TOK" https://ssh.samstuhl.com/
-curl -s https://a-hostname-that-does-not-exist.samstuhl.com/    # the wildcard's answer, for comparison
+TOK=$(cat ~/.cloudflared/ssh.<your-domain>-*-token)
+curl -s -o /dev/null -w "%{http_code}\n" -H "Cookie: CF_Authorization=$TOK" https://ssh.<your-domain>/
+curl -s https://a-hostname-that-does-not-exist.<your-domain>/    # the wildcard's answer, for comparison
 ```
 
 - **`404 page not found`, byte-identical to the nonexistent hostname**: the
@@ -167,7 +169,7 @@ curl -s https://a-hostname-that-does-not-exist.samstuhl.com/    # the wildcard's
   Part 1 can go, and it means every hop before the box is proven.
 - **`302` to a login**: the token expired. Rerun `ssh homebox` to re-auth.
 
-## Part 2: at the Windows box
+## Part 2: at the server
 
 ### 5. Install the SSH server
 
@@ -185,11 +187,11 @@ is behind Access.
 
 ### 6. Install the public key
 
-Copy the **contents** of `~/.ssh/homebox_ed25519.pub` from the Mac (one line,
-starts `ssh-ed25519`). The private key stays on the Mac.
+Copy the **contents** of `~/.ssh/homebox_ed25519.pub` from your workstation (one line,
+starts `ssh-ed25519`). The private key stays on your workstation.
 
 **Read this before you write the file anywhere else.** Because your account is
-an administrator, sshd ignores `C:\Users\Sam\.ssh\authorized_keys` entirely.
+an administrator, sshd ignores `C:\Users\<you>\.ssh\authorized_keys` entirely.
 The `Match Group administrators` block at the bottom of
 `C:\ProgramData\ssh\sshd_config` redirects every admin to one shared file
 instead. Put the key in the wrong place and sshd will silently ignore it and
@@ -237,7 +239,7 @@ ssh homebox
 ```
 
 The first connection opens a browser for the Access login, then drops you at a
-`C:\Users\Sam>` prompt. Then:
+`C:\Users\<you>>` prompt. Then:
 
 ```
 ssh homebox "docker --version"
@@ -260,7 +262,7 @@ Two things decide whether that second command works:
 
 ### 10. Create it
 
-Back on the Mac:
+Back on your workstation:
 
 ```
 docker context create homebox --docker "host=ssh://homebox"
@@ -302,11 +304,11 @@ keeping it deliberate:
 alias homebox='docker --context homebox'
 ```
 
-## Do not run compose from the Mac
+## Do not run compose from your workstation
 
 Use the context for docker commands. Do **not** use it for
-`docker compose -f compose.prod.yaml`. SSH in and run compose on the box, in
-`C:\Users\Sam\servers\console`.
+`docker compose -f compose.prod.yaml`. SSH in and run compose on the box, in the
+deploy directory (`<deploy-dir>`, for example `C:\Users\<you>\servers\console`).
 
 The reason is not obvious, and the failure is quiet rather than loud. Compose
 resolves paths **client-side**, on the machine you type on, and then hands the
@@ -321,11 +323,10 @@ secrets:
     file: ./secrets/console_key
 ```
 
-Run that from the Mac and `./data` resolves to
-`/Users/sam/Desktop/repos/console/data`, which is then sent to the **Windows**
-daemon. Docker Desktop creates that path as an empty directory and starts the
-console on a **blank database**, while the real
-`C:\Users\Sam\servers\console\data` sits untouched and unused. Same for the
+Run that from your workstation and `./data` resolves to `<your-checkout>/data`,
+which is then sent to the **server's** daemon. Docker creates that path as an
+empty directory and starts the console on a **blank database**, while the real
+`<deploy-dir>/data` on the server sits untouched and unused. Same for the
 Fernet key.
 
 In practice the `TUNNEL_TOKEN` interpolation (also read client-side, from a
@@ -338,7 +339,7 @@ want: `ps`, `logs`, `restart`, `stop`, `start`, `inspect`, `exec`, `stats`,
 
 ```
 ssh homebox
-cd C:\Users\Sam\servers\console
+cd <deploy-dir>
 docker compose -f compose.prod.yaml pull console
 docker compose -f compose.prod.yaml up -d console
 ```
@@ -380,7 +381,7 @@ jobs:
     steps:
       - name: ${{ inputs.action }}
         shell: powershell
-        working-directory: C:\Users\Sam\servers\console
+        working-directory: <deploy-dir>
         run: |
           switch ("${{ inputs.action }}") {
             "start-docker" {
@@ -391,7 +392,7 @@ jobs:
               docker restart console
             }
             "repin-console" {
-              $env:CONSOLE_IMAGE = "ghcr.io/sam-stuhl/console:${{ inputs.tag }}"
+              $env:CONSOLE_IMAGE = "ghcr.io/<your-account>/console:${{ inputs.tag }}"
               docker compose -f compose.prod.yaml up -d console
             }
             "compose-up" {
@@ -409,7 +410,7 @@ can press the button (that needs write access), but everyone can read what it
 printed. GitHub masks Actions secrets in logs, but it cannot mask yours: app
 secrets live encrypted in the console's own database and are injected as
 container env by the deploy engine, so GitHub has never seen them and has
-nothing to match against. A single `docker inspect banking-dash` would put the
+nothing to match against. A single `docker inspect <app>` would put the
 Neon `DATABASE_URL`, password and all, on a public page permanently.
 
 Scalar output is fine, whole objects are not:
@@ -427,24 +428,24 @@ re-pin the last good tag" true.
 
 **Nothing new is stored on the box.** Only the public key lands there, and a
 public key is not a secret: it lets the server verify a signature, and cannot
-produce one. The private key never leaves the Mac, not even during login, since
+produce one. The private key never leaves your workstation, not even during login, since
 SSH proves possession by signing a challenge rather than sending the key.
 
 **No new inbound exposure.** No port is opened, no router rule changes. Port 22
-listens on the LAN only. The one new path in is `ssh.samstuhl.com`, which exists
+listens on the LAN only. The one new path in is `ssh.<your-domain>`, which exists
 only inside the tunnel and only behind the Access policy from step 4. Without
 that policy you would have published SSH to the internet, which is why that step
 says what it says.
 
 **No long-lived shared secret.** Access auth is your browser SSO, cached as a
-short-lived token under `~/.cloudflared` on the Mac. There is no service token,
+short-lived token under `~/.cloudflared` on your workstation. There is no service token,
 which is consistent with the same call made for `/hooks` (see CLAUDE.md).
 
 **What to rotate, and when.**
 
 | Thing | Where | Expires? | Do what |
 |---|---|---|---|
-| SSH private key | Mac only | No | Rotate if the Mac is lost or compromised: `ssh-keygen` a new pair, replace the line in `administrators_authorized_keys`. |
+| SSH private key | workstation only | No | Rotate if the workstation is lost or compromised: `ssh-keygen` a new pair, replace the line in `administrators_authorized_keys`. |
 | SSH public key | Box | No | Delete its line to revoke that one Mac. |
 | Access session token | Mac, `~/.cloudflared` | Yes, per session duration | Nothing. It re-auths in a browser by itself. |
 | Access policy | Cloudflare | No | This is the kill switch. Delete it to revoke everything at once, from anywhere, without touching the box. |
@@ -480,8 +481,8 @@ taught to handle expiry-only entries first.
   `compose.prod.yaml`.
 - **Never `docker context use`.** Always `--context homebox`. See the compose
   section for what a misfire costs.
-- **Compose is client-side.** Paths and `.env` resolve on the Mac and are handed
-  to the remote daemon. Run compose over SSH, on the box, always.
+- **Compose is client-side.** Paths and `.env` resolve on your workstation and
+  are handed to the remote daemon. Run compose over SSH, on the box, always.
 - **This path is not disaster recovery.** cloudflared is a container. Docker down
   means tunnel down means no SSH. The ops button above is the answer to that; the
   runner is a native service in a different failure domain.

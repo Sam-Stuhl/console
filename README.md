@@ -106,6 +106,16 @@ For a production-style run, build the SPA and let uvicorn serve everything at `:
 cd frontend && npm run build
 ```
 
+## API and AI agents
+
+Besides the web console there is a token-authenticated machine surface: a REST
+API under `/v1` and an MCP server at `/mcp`, so a script or an AI agent can read
+project status, deploy history, and app logs, and drive deploys, rollbacks,
+restarts, and one-off commands. Secret values are unreachable from both. Mint a
+token in Settings -> **api tokens**; the walkthrough, including the Cloudflare
+Access change it needs and the trade that involves, is in
+[`docs/api.md`](docs/api.md).
+
 ## Production
 
 `compose.prod.yaml` runs the stack tunnel-only: Traefik, the console image from GHCR, and cloudflared, with the console's SQLite database on a host bind-mount and the Fernet key mounted as a compose secret. To enable off-box backups, set a passphrase and the destination repo + token in Settings (the passphrase can also be mounted as a secret via `CONSOLE_BACKUP_PASSPHRASE_FILE`). The console updates itself: a self-hosted runner on the box pulls the new image and recreates the container on a push to `main`, out-of-band from its own deploy engine, so a bad build can never leave it unable to recover. The full server walkthrough is in [`docs/server-setup.md`](docs/server-setup.md); the hand-run deploy cycle that the engine automates is in [`docs/manual-deploy.md`](docs/manual-deploy.md).
