@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 
 from conftest import FakeResponse
@@ -12,12 +14,25 @@ async def connect(db, token="gho_abc"):
         await session.commit()
 
 
-async def test_status_when_nothing_is_connected(client):
+async def configure_app(db):
+    async with db() as session:
+        await settings_store.set_value(session, settings_store.GITHUB_CLIENT_ID, "Iv1.abc")
+        await settings_store.set_value(session, settings_store.GITHUB_CLIENT_SECRET, "sec")
+        await session.commit()
+
+
+@pytest.fixture(autouse=True)
+def no_env_client_id(monkeypatch):
+    """Tests decide what is configured; the environment must not leak in."""
+    monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "")
+
+
+async def test_status_when_nothing_is_set_up(client):
     response = await client.get("/api/github/status")
 
     assert response.status_code == 200
     assert response.json() == {
-        "client_configured": True,
+        "app_configured": False,
         "connected": False,
         "login": None,
         "error": None,
@@ -25,17 +40,20 @@ async def test_status_when_nothing_is_connected(client):
 
 
 async def test_status_reports_the_connected_account(client, db, github_http):
+    await configure_app(db)
     await connect(db)
     github_http.routes["/user"] = FakeResponse({"login": "example-owner"})
 
     body = (await client.get("/api/github/status")).json()
 
+    assert body["app_configured"] is True
     assert body["connected"] is True
     assert body["login"] == "example-owner"
     assert body["error"] is None
 
 
 async def test_status_surfaces_a_revoked_token(client, db, github_http):
+    await configure_app(db)
     await connect(db)
     github_http.routes["/user"] = FakeResponse({"message": "Bad credentials"}, 401)
 
@@ -48,74 +66,99 @@ async def test_status_surfaces_a_revoked_token(client, db, github_http):
     assert "Reconnect" in body["error"]
 
 
-async def test_status_without_a_client_id_says_so(client, monkeypatch):
-    monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "")
-
-    assert (await client.get("/api/github/status")).json()["client_configured"] is False
+# --- the redirect -----------------------------------------------------------
 
 
-async def test_a_client_id_saved_in_settings_is_enough(client, db, monkeypatch):
-    # The whole point: set it up in the browser, no file on the box to edit and
-    # no restart.
-    monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "")
-
-    assert (
-        await client.put(
-            "/api/settings/github_client_id", json={"value": "Iv1.saved"}
-        )
-    ).status_code == 204
-
-    assert (await client.get("/api/github/status")).json()["client_configured"] is True
-
-
-async def test_device_start_needs_a_client_id(client, monkeypatch):
-    monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "")
-
-    response = await client.post("/api/github/device")
+async def test_authorize_needs_a_configured_app(client):
+    response = await client.get("/api/github/authorize")
 
     assert response.status_code == 503
-    assert "Settings" in response.json()["detail"]
+    assert "client id and client secret" in response.json()["detail"]
 
 
-async def test_device_start_hands_the_code_to_the_browser(client, github_http):
-    github_http.routes["login/device/code"] = FakeResponse(
-        {
-            "device_code": "dev-123",
-            "user_code": "ABCD-1234",
-            "verification_uri": "https://github.com/login/device",
-            "interval": 5,
-            "expires_in": 900,
-        }
+async def test_authorize_redirects_to_github_with_a_state_cookie(client, db):
+    await configure_app(db)
+
+    response = await client.get("/api/github/authorize", follow_redirects=False)
+
+    assert response.status_code == 303
+    query = parse_qs(urlparse(response.headers["location"]).query)
+    assert query["client_id"] == ["Iv1.abc"]
+    assert query["scope"] == [config.GITHUB_SCOPE]
+    # The callback is derived from the request, so it matches whatever hostname
+    # the console is being used on, and both halves send the same value.
+    assert query["redirect_uri"] == ["http://test/api/github/callback"]
+    # The state is what ties the callback back to this request.
+    assert response.cookies["console_github_state"] == query["state"][0]
+
+
+async def test_the_callback_stores_the_token(client, db, github_http):
+    await configure_app(db)
+    github_http.routes["login/oauth/access_token"] = FakeResponse(
+        {"access_token": "gho_new"}
+    )
+    started = await client.get("/api/github/authorize", follow_redirects=False)
+    state = parse_qs(urlparse(started.headers["location"]).query)["state"][0]
+
+    response = await client.get(
+        f"/api/github/callback?code=abc123&state={state}", follow_redirects=False
     )
 
-    body = (await client.post("/api/github/device")).json()
+    assert response.status_code == 303
+    assert response.headers["location"] == "/settings?github=connected"
+    async with db() as session:
+        assert await settings_store.get(session, settings_store.GITHUB_TOKEN) == "gho_new"
 
-    assert body["user_code"] == "ABCD-1234"
-    assert body["device_code"] == "dev-123"
 
+async def test_the_callback_refuses_a_state_it_did_not_issue(client, db, github_http):
+    await configure_app(db)
+    await client.get("/api/github/authorize", follow_redirects=False)
 
-async def test_polling_while_the_user_is_still_approving(client, db, github_http):
-    github_http.routes["access_token"] = FakeResponse({"error": "authorization_pending"})
-
-    response = await client.post(
-        "/api/github/device/poll", json={"device_code": "dev-123"}
+    response = await client.get(
+        "/api/github/callback?code=abc123&state=not-the-one", follow_redirects=False
     )
 
-    assert response.json() == {"status": "pending"}
+    assert response.headers["location"] == "/settings?github=failed&detail=state_mismatch"
+    assert github_http.requests == []  # never even tried to exchange it
     async with db() as session:
         assert await settings_store.get(session, settings_store.GITHUB_TOKEN) is None
 
 
-async def test_a_successful_poll_stores_the_token(client, db, github_http):
-    github_http.routes["access_token"] = FakeResponse({"access_token": "gho_new"})
+async def test_the_callback_without_a_cookie_is_refused(client, db):
+    await configure_app(db)
 
-    response = await client.post(
-        "/api/github/device/poll", json={"device_code": "dev-123"}
+    response = await client.get(
+        "/api/github/callback?code=abc123&state=whatever", follow_redirects=False
     )
 
-    assert response.json() == {"status": "connected"}
+    assert response.headers["location"] == "/settings?github=failed&detail=state_mismatch"
+
+
+async def test_a_cancelled_authorization_comes_back_saying_so(client, db):
+    await configure_app(db)
+
+    response = await client.get(
+        "/api/github/callback?error=access_denied", follow_redirects=False
+    )
+
+    assert response.headers["location"] == "/settings?github=failed&detail=access_denied"
+
+
+async def test_a_failed_exchange_does_not_look_like_success(client, db, github_http):
+    await configure_app(db)
+    github_http.routes["login/oauth/access_token"] = FakeResponse(
+        {"error": "bad_verification_code"}
+    )
+    started = await client.get("/api/github/authorize", follow_redirects=False)
+    state = parse_qs(urlparse(started.headers["location"]).query)["state"][0]
+
+    response = await client.get(
+        f"/api/github/callback?code=stale&state={state}", follow_redirects=False
+    )
+
+    assert response.headers["location"] == "/settings?github=failed&detail=exchange_failed"
     async with db() as session:
-        assert await settings_store.get(session, settings_store.GITHUB_TOKEN) == "gho_new"
+        assert await settings_store.get(session, settings_store.GITHUB_TOKEN) is None
 
 
 async def test_disconnecting_forgets_the_token(client, db):
@@ -124,6 +167,9 @@ async def test_disconnecting_forgets_the_token(client, db):
     assert (await client.delete("/api/github/connection")).status_code == 204
     async with db() as session:
         assert await settings_store.get(session, settings_store.GITHUB_TOKEN) is None
+
+
+# --- what the token is for --------------------------------------------------
 
 
 async def test_repos_need_a_connection(client):

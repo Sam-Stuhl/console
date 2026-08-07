@@ -10,17 +10,14 @@ import {
   fetchGitHubStatus,
   fetchProjects,
   fetchSettings,
-  pollGitHubDeviceFlow,
   putDomains,
   putSetting,
   runBackupNow,
   sendTestAlert,
   setCredentialExpiry,
-  startGitHubDeviceFlow,
   type CredentialStatus,
-  type DeviceFlow,
+  GITHUB_AUTHORIZE_PATH,
 } from '../api/client'
-import { copyText } from '../lib/clipboard'
 import { formatBytes, since } from '../lib/format'
 import {
   CollapsibleSection,
@@ -76,7 +73,10 @@ export default function Settings() {
           </div>
 
           <CollapsibleSection id="github" title="github connection">
-            <GitHubConnection clientIdSet={isSet('github_client_id')} />
+            <GitHubConnection
+              clientIdSet={isSet('github_client_id')}
+              clientSecretSet={isSet('github_client_secret')}
+            />
           </CollapsibleSection>
 
           <CollapsibleSection id="ghcr" title="github packages token">
@@ -756,35 +756,34 @@ function Dot({ on, label }: { on: boolean; label: string }) {
   )
 }
 
-/* Connect a GitHub account through the OAuth device flow: the console shows a
-   code, you approve it on github.com, and it polls until the token arrives.
+/* Connect a GitHub account with a plain OAuth redirect: the console hands the
+   browser to GitHub, GitHub hands it back to /api/github/callback with a code,
+   and the console trades that for a token before the page even reloads. So the
+   connection either exists or says why it does not.
+
    The token is outbound only. It lets the console read your repo list and a
    repo's console.toml; it grants nobody access to this console, which is still
    Cloudflare Access's job alone. */
-function GitHubConnection({ clientIdSet }: { clientIdSet: boolean }) {
+function GitHubConnection({
+  clientIdSet,
+  clientSecretSet,
+}: {
+  clientIdSet: boolean
+  clientSecretSet: boolean
+}) {
   const queryClient = useQueryClient()
   const { data: status } = useQuery({
     queryKey: ['github-status'],
     queryFn: fetchGitHubStatus,
   })
-  const [flow, setFlow] = useState<DeviceFlow | null>(null)
-  const [outcome, setOutcome] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
 
-  // Either source counts. Saving the client id below refreshes the settings
-  // query but not this section's status, so reading both is what makes the
-  // page react to the save instead of waiting for a reload.
-  const configured = clientIdSet || status?.client_configured === true
-
-  const start = useMutation({
-    mutationFn: startGitHubDeviceFlow,
-    onSuccess: (started) => {
-      setOutcome(null)
-      setFlow(started)
-    },
-    onError: (err: Error) => setOutcome(err.message),
-  })
+  // Both halves count, and either source of the id does. Saving a setting
+  // refreshes the settings query but not this section's status, so reading
+  // both is what makes the page react to a save instead of waiting for a
+  // reload.
+  const configured =
+    (clientIdSet && clientSecretSet) || status?.app_configured === true
 
   const disconnect = useMutation({
     mutationFn: disconnectGitHub,
@@ -795,37 +794,21 @@ function GitHubConnection({ clientIdSet }: { clientIdSet: boolean }) {
     },
   })
 
-  // Poll at the interval GitHub advertised, no faster: polling too often is
-  // what earns a slow_down.
+  // The callback sends the browser back here with the result in the query
+  // string. Read it once, tell the user, then strip it so a refresh does not
+  // replay a stale answer.
+  const [outcome, setOutcome] = useState<string | null>(null)
   useEffect(() => {
-    if (!flow) return
-    let cancelled = false
-    const timer = window.setInterval(async () => {
-      try {
-        const { status: state } = await pollGitHubDeviceFlow(flow.device_code)
-        if (cancelled || state === 'pending') return
-        setFlow(null)
-        if (state === 'connected') {
-          queryClient.invalidateQueries({ queryKey: ['github-status'] })
-          queryClient.invalidateQueries({ queryKey: ['github-repos'] })
-        } else {
-          setOutcome(
-            state === 'denied'
-              ? 'that request was denied on github.'
-              : 'that code expired before it was approved.',
-          )
-        }
-      } catch (err) {
-        if (cancelled) return
-        setFlow(null)
-        setOutcome((err as Error).message)
-      }
-    }, flow.interval * 1000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
+    const params = new URLSearchParams(window.location.search)
+    const result = params.get('github')
+    if (!result) return
+    setOutcome(result === 'connected' ? null : (params.get('detail') ?? 'failed'))
+    if (result === 'connected') {
+      queryClient.invalidateQueries({ queryKey: ['github-status'] })
+      queryClient.invalidateQueries({ queryKey: ['github-repos'] })
     }
-  }, [flow, queryClient])
+    window.history.replaceState({}, '', window.location.pathname)
+  }, [queryClient])
 
   return (
     <>
@@ -839,7 +822,7 @@ function GitHubConnection({ clientIdSet }: { clientIdSet: boolean }) {
       {status && !configured && (
         <>
           <Callout>
-            No OAuth client id is set, so there is nothing to connect to yet.
+            The OAuth app is not set up yet, so there is nothing to connect to.
           </Callout>
           <Steps
             title="one-time setup"
@@ -853,16 +836,21 @@ function GitHubConnection({ clientIdSet }: { clientIdSet: boolean }) {
                 and click <UI>New OAuth App</UI>.
               </>,
               <>
-                Name it something like <Code>my console</Code>. The homepage and
-                callback URLs are not used by the device flow; your console&apos;s
-                own URL is a fine answer for both.
+                Name it something like <Code>my console</Code>, and set the
+                homepage URL to this console.
               </>,
               <>
-                On the app&apos;s page, tick <UI>Enable Device Flow</UI> and save.
+                Set <UI>Authorization callback URL</UI> to exactly{' '}
+                <Code>{window.location.origin}/api/github/callback</Code>. GitHub
+                refuses to return here if it does not match.
               </>,
               <>
-                Copy the <UI>Client ID</UI> and paste it below. Nothing to edit
-                on the server, and no restart.
+                <UI>Register application</UI>, then{' '}
+                <UI>Generate a new client secret</UI>.
+              </>,
+              <>
+                Paste the <UI>Client ID</UI> and <UI>Client secret</UI> below.
+                Nothing to edit on the server, and no restart.
               </>,
             ]}
             link={{
@@ -873,10 +861,10 @@ function GitHubConnection({ clientIdSet }: { clientIdSet: boolean }) {
         </>
       )}
 
-      {/* Shown whenever it came from Settings, so it can be corrected or
+      {/* Shown whenever they came from Settings, so they can be corrected or
           cleared. An id set through CONSOLE_GITHUB_CLIENT_ID instead is left
-          alone: the env wins nothing here, but saving one would quietly
-          override the file the operator chose to keep. */}
+          alone: saving one here would quietly override the file the operator
+          chose to keep. */}
       {(clientIdSet || !configured) && (
         <SettingField
           keyName="github_client_id"
@@ -886,11 +874,17 @@ function GitHubConnection({ clientIdSet }: { clientIdSet: boolean }) {
           secret={false}
         />
       )}
+      {(clientSecretSet || !configured) && (
+        <SettingField
+          keyName="github_client_secret"
+          label="client secret"
+          placeholder="the OAuth app's client secret"
+          isSet={clientSecretSet}
+        />
+      )}
 
       {status?.connected && status.error && (
-        <Callout>
-          {status.error} The connection below no longer works.
-        </Callout>
+        <Callout>{status.error} The connection below no longer works.</Callout>
       )}
 
       {status?.connected ? (
@@ -928,57 +922,39 @@ function GitHubConnection({ clientIdSet }: { clientIdSet: boolean }) {
             authorization itself
           </span>
         </div>
-      ) : flow ? (
-        <div className="flex flex-col gap-2 font-mono text-xs">
-          <p className="text-muted">
-            enter this code on github, then come back. this page is waiting.
-          </p>
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-sm bg-base-100 px-2 py-1 text-base tracking-[0.3em] text-base-content">
-              {flow.user_code}
-            </span>
-            <button
-              type="button"
-              className="text-muted transition-colors duration-150 hover:text-base-content hover:underline"
-              onClick={async () => {
-                await copyText(flow.user_code)
-                setCopied(true)
-                window.setTimeout(() => setCopied(false), 2000)
-              }}
-            >
-              {copied ? 'copied' : 'copy'}
-            </button>
-            <a
-              href={flow.verification_uri}
-              target="_blank"
-              rel="noreferrer"
-              className="text-accent hover:underline"
-            >
-              open github &#8599;
-            </a>
-            <button
-              type="button"
-              className="text-muted transition-colors duration-150 hover:text-base-content hover:underline"
-              onClick={() => setFlow(null)}
-            >
-              cancel
-            </button>
-          </div>
-        </div>
       ) : (
-        <button
-          type="button"
-          disabled={!configured || start.isPending}
-          className="btn btn-primary btn-sm self-start font-mono"
-          onClick={() => start.mutate()}
+        // A real link, not a fetch: the browser has to follow the redirect to
+        // github.com and come back carrying the state cookie.
+        <a
+          href={configured ? GITHUB_AUTHORIZE_PATH : undefined}
+          aria-disabled={!configured}
+          className={`btn btn-primary btn-sm self-start font-mono ${
+            configured ? '' : 'btn-disabled pointer-events-none opacity-50'
+          }`}
         >
-          {start.isPending ? 'starting…' : 'connect github'}
-        </button>
+          connect github
+        </a>
       )}
 
-      {outcome && <p className="font-mono text-xs text-error">{outcome}</p>}
+      {outcome && (
+        <p className="font-mono text-xs text-error">
+          {OUTCOMES[outcome] ?? `github returned "${outcome}".`}
+        </p>
+      )}
     </>
   )
+}
+
+// What came back on the callback's query string, in words.
+const OUTCOMES: Record<string, string> = {
+  access_denied: 'that authorization was cancelled on github.',
+  state_mismatch:
+    'that response did not match the request this browser started. try again.',
+  no_code: 'github came back without a code. try again.',
+  not_set_up: 'the client id and secret are no longer both set.',
+  exchange_failed:
+    'github would not exchange the code. check the client secret and the callback URL on the OAuth app.',
+  failed: 'that did not work.',
 }
 
 // A UI label the user will see on the other site — brighter so steps are
