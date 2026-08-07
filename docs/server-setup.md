@@ -128,6 +128,20 @@ Zero Trust -> **Access -> Applications**. Create **two** self-hosted apps
 - **App B, the console UI**: hostname `console.samstuhl.com`, no path.
   One policy, action **Allow**, include your email.
 
+If you want scripts or AI agents to reach the console (see `docs/api.md`), add
+one Bypass app per machine path, the same shape as App A:
+
+- **App A2**: hostname `console.<your-domain>`, path `v1`
+- **App A3**: hostname `console.<your-domain>`, path `mcp`
+
+Both authenticate themselves with a console-issued API token, which is why they
+can bypass Access. Understand the trade before you add them: **these two paths
+are then reachable from the whole internet, and your token is the only thing in
+front of your projects, deploys, logs, and app controls.** Skip this step if you
+only ever call the API from the box itself; mint tokens with `read` scope unless
+a caller genuinely needs to change something, and revoke any token you cannot
+account for.
+
 Every other app subdomain is public by default (the wildcard route sends it
 to Traefik). To put the same login in front of a specific app, flip the
 **access** toggle on its project page in the console (enable that with the
@@ -143,6 +157,11 @@ Then add a rate limit so nobody can flood `/hooks` with wrong-owner calls
     with `/hooks`
   - Then: **Block**, at **20 requests per 1 minute** per client IP.
   (Far above your real volume; tune later if needed.)
+
+If you added the `v1` and `mcp` bypasses above, give them a rate limit too:
+same rule shape, URI path starting with `/v1` or `/mcp`, blocking at a few
+hundred requests per minute. An agent polling a deploy is chatty, so keep this
+looser than the `/hooks` limit.
 
 ## 5. Make the console image pullable
 
