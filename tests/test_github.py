@@ -13,75 +13,44 @@ def http(github_http):
     return github_http
 
 
-# --- device flow -----------------------------------------------------------
+# --- authorization code flow -----------------------------------------------
 
 
-async def test_start_device_flow_returns_what_the_browser_needs(http):
-    http.routes["login/device/code"] = FakeResponse(
-        {
-            "device_code": "dev-123",
-            "user_code": "ABCD-1234",
-            "verification_uri": "https://github.com/login/device",
-            "interval": 7,
-            "expires_in": 900,
-        }
-    )
+def test_authorize_url_carries_what_github_needs():
+    url = github.authorize_url("Iv1.abc", "https://console.example.com/api/github/callback", "st8")
 
-    result = await github.start_device_flow()
-
-    assert result["device_code"] == "dev-123"
-    assert result["user_code"] == "ABCD-1234"
-    assert result["interval"] == 7
-    _, _, kwargs = http.requests[0]
-    assert kwargs["data"]["client_id"] == GITHUB_CLIENT_ID
-    assert kwargs["data"]["scope"] == config.GITHUB_SCOPE
+    assert url.startswith(config.GITHUB_AUTHORIZE_URL + "?")
+    assert "client_id=Iv1.abc" in url
+    assert "state=st8" in url
+    assert "scope=repo" in url
+    assert "redirect_uri=https%3A%2F%2Fconsole.example.com%2Fapi%2Fgithub%2Fcallback" in url
 
 
-async def test_start_device_flow_without_a_client_id_is_unavailable(monkeypatch):
-    monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "")
-    with pytest.raises(github.DeviceFlowUnavailable):
-        await github.start_device_flow()
-
-
-@pytest.mark.parametrize(
-    "error,expected",
-    [
-        ("authorization_pending", github.PENDING),
-        ("slow_down", github.PENDING),
-        ("access_denied", github.DENIED),
-        ("expired_token", github.EXPIRED),
-    ],
-)
-async def test_poll_maps_github_errors_to_states(http, error, expected):
-    http.routes["login/oauth/access_token"] = FakeResponse({"error": error})
-
-    state, token = await github.poll_device_flow("dev-123")
-
-    assert (state, token) == (expected, None)
-
-
-async def test_poll_returns_the_token_once_approved(http):
+async def test_exchange_code_returns_the_token(http):
     http.routes["login/oauth/access_token"] = FakeResponse({"access_token": "gho_abc"})
 
-    state, token = await github.poll_device_flow("dev-123")
+    token = await github.exchange_code("Iv1.abc", "sec", "code-1", "https://c/cb")
 
-    assert (state, token) == (github.CONNECTED, "gho_abc")
+    assert token == "gho_abc"
+    _, _, kwargs = http.requests[0]
+    assert kwargs["data"]["client_secret"] == "sec"
+    assert kwargs["data"]["code"] == "code-1"
 
 
-async def test_poll_raises_on_an_error_it_does_not_know(http):
+async def test_exchange_code_surfaces_githubs_reason(http):
     http.routes["login/oauth/access_token"] = FakeResponse(
-        {"error": "incorrect_client_credentials", "error_description": "bad id"}
+        {"error": "bad_verification_code", "error_description": "code expired"}
     )
 
-    with pytest.raises(github.GitHubApiError, match="bad id"):
-        await github.poll_device_flow("dev-123")
+    with pytest.raises(github.GitHubApiError, match="code expired"):
+        await github.exchange_code("Iv1.abc", "sec", "stale", "https://c/cb")
 
 
 async def test_unreachable_github_is_a_readable_error(http):
-    http.routes["login/device/code"] = httpx.ConnectError("dns")
+    http.routes["login/oauth/access_token"] = httpx.ConnectError("dns")
 
     with pytest.raises(github.GitHubApiError, match="could not reach GitHub"):
-        await github.start_device_flow()
+        await github.exchange_code("Iv1.abc", "sec", "code-1", "https://c/cb")
 
 
 # --- token storage ---------------------------------------------------------
@@ -100,11 +69,57 @@ async def test_resolve_token_reads_the_stored_token(db):
         assert await github.resolve_token(session) == "gho_abc"
 
 
+async def test_client_id_prefers_the_saved_one_over_the_env(db, monkeypatch):
+    # Same arrangement as the Cloudflare credentials: Settings wins, so this can
+    # be set up in the browser without editing a file on the box.
+    monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "Iv1.fromenv")
+    async with db() as session:
+        assert await github.client_id(session) == "Iv1.fromenv"
+        await settings_store.set_value(
+            session, settings_store.GITHUB_CLIENT_ID, "Iv1.fromsettings"
+        )
+        await session.commit()
+        assert await github.client_id(session) == "Iv1.fromsettings"
+
+
+@pytest.mark.parametrize("missing", ["id", "secret"])
+async def test_half_a_configured_app_is_not_set_up(db, monkeypatch, missing):
+    # Either half missing means the redirect cannot complete, so both report the
+    # same thing rather than failing later, mid-exchange.
+    monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "")
+    async with db() as session:
+        if missing != "id":
+            await settings_store.set_value(
+                session, settings_store.GITHUB_CLIENT_ID, "Iv1.abc"
+            )
+        if missing != "secret":
+            await settings_store.set_value(
+                session, settings_store.GITHUB_CLIENT_SECRET, "sec"
+            )
+        await session.commit()
+        with pytest.raises(github.NotSetUp):
+            await github.app_credentials(session)
+
+
+async def test_a_fully_configured_app_resolves(db, monkeypatch):
+    monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "")
+    async with db() as session:
+        await settings_store.set_value(session, settings_store.GITHUB_CLIENT_ID, "Iv1.abc")
+        await settings_store.set_value(session, settings_store.GITHUB_CLIENT_SECRET, "sec")
+        await session.commit()
+        assert await github.app_credentials(session) == ("Iv1.abc", "sec")
+
+
 # --- repo listing ----------------------------------------------------------
 
 
 def _repo(full_name, default_branch="main", private=False):
-    return {"full_name": full_name, "default_branch": default_branch, "private": private}
+    return {
+        "full_name": full_name,
+        "default_branch": default_branch,
+        "private": private,
+        "pushed_at": "2026-08-01T12:00:00Z",
+    }
 
 
 async def test_list_repos_keeps_only_the_configured_owner(http, monkeypatch):
@@ -125,6 +140,7 @@ async def test_list_repos_keeps_only_the_configured_owner(http, monkeypatch):
         "full_name": "Example-Owner/blog",
         "default_branch": "trunk",
         "private": True,
+        "pushed_at": "2026-08-01T12:00:00Z",
     }
 
 

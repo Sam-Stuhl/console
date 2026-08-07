@@ -45,20 +45,31 @@ WORKFLOW_REPO = os.environ.get("CONSOLE_WORKFLOW_REPO", "Sam-Stuhl/console")
 # This is a credential the console uses to call GitHub, never a way to log in
 # to the console; Cloudflare Access remains the only inbound gate.
 #
-# The client id has no default on purpose. This is a public project, so a
-# shipped default would make the upstream author the OAuth trust anchor for
-# every install; each operator registers their own OAuth app (device flow
-# enabled) instead. Unset simply turns the feature off.
+# The client id is normally saved in Settings, in the browser; this env var is
+# the fallback for anyone who would rather keep it in their compose file, the
+# same arrangement as the Cloudflare account id.
+#
+# It has no default on purpose. This is a public project, so a shipped default
+# would make the upstream author the OAuth trust anchor for every install; each
+# operator registers their own OAuth app (device flow enabled) instead. With
+# neither the setting nor this set, the feature is simply off.
 GITHUB_CLIENT_ID = os.environ.get("CONSOLE_GITHUB_CLIENT_ID", "")
 # Overridable like CONSOLE_CF_API_BASE, so the client can be pointed at a
 # stand-in during development. Nothing but a test should ever change it.
 GITHUB_API = os.environ.get("CONSOLE_GITHUB_API", "https://api.github.com")
-GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
-GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+# Where the browser is sent to approve, and where the code is exchanged. The
+# base is overridable for the same reason as GITHUB_API: so the flow can be
+# driven against a stand-in in development. Nothing but a test should change it.
+GITHUB_OAUTH_BASE = os.environ.get("CONSOLE_GITHUB_OAUTH_BASE", "https://github.com")
+GITHUB_AUTHORIZE_URL = f"{GITHUB_OAUTH_BASE}/login/oauth/authorize"
+GITHUB_TOKEN_URL = f"{GITHUB_OAUTH_BASE}/login/oauth/access_token"
 # Listing private repos needs the coarse "repo" scope: OAuth apps cannot
 # express anything narrower. A GitHub App could (per-repo, read-only) and is
 # the upgrade path if that ever matters.
 GITHUB_SCOPE = "repo"
+# How long the operator has to finish approving on github.com before the
+# state cookie tying the two halves of the redirect together expires.
+GITHUB_STATE_TTL = 600  # seconds
 GITHUB_TIMEOUT = 15  # per-request HTTP timeout
 GITHUB_PAGE_SIZE = 100  # one page of repos or branches; the pickers are not browsers
 GITHUB_FILE_MAX_BYTES = 256 * 1024  # a console.toml is a few hundred bytes

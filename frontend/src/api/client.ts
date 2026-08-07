@@ -375,7 +375,7 @@ export const deployImage = (
   )
 
 export interface GitHubStatus {
-  client_configured: boolean // an OAuth client id is set, so connecting is possible
+  app_configured: boolean // client id and secret are both set, so connecting is possible
   connected: boolean // a token is stored
   login: string | null // the connected account, null if the token no longer works
   error: string | null
@@ -385,26 +385,14 @@ export interface GitHubRepo {
   full_name: string
   default_branch: string
   private: boolean
-}
-
-export interface DeviceFlow {
-  device_code: string
-  user_code: string
-  verification_uri: string
-  interval: number // seconds GitHub allows between polls
-  expires_in: number
+  pushed_at: string | null // the list is ordered by this, newest first
 }
 
 export const fetchGitHubStatus = () => getJson<GitHubStatus>('/api/github/status')
 
-export const startGitHubDeviceFlow = () =>
-  request<DeviceFlow>('/api/github/device', jsonInit('POST'))
-
-export const pollGitHubDeviceFlow = (deviceCode: string) =>
-  request<{ status: 'pending' | 'connected' | 'denied' | 'expired' }>(
-    '/api/github/device/poll',
-    jsonInit('POST', { device_code: deviceCode }),
-  )
+// A full page navigation, not fetch: the browser has to follow the redirect to
+// github.com and come back to the callback carrying the state cookie.
+export const GITHUB_AUTHORIZE_PATH = '/api/github/authorize'
 
 export const disconnectGitHub = () =>
   request<void>('/api/github/connection', jsonInit('DELETE'))

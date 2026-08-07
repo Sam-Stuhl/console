@@ -245,20 +245,30 @@ credential: the console calls GitHub with it, and it gives nobody access to the
 console, which is still Cloudflare Access's job alone.
 
 1. GitHub -> **Settings -> Developer settings -> OAuth Apps -> New OAuth App**.
-   Name it anything; the device flow does not use the homepage or callback
-   URLs, so your console's own URL is a fine answer for both.
-2. On the app's page, tick **Enable Device Flow** and save.
-3. Copy the **Client ID** and set `CONSOLE_GITHUB_CLIENT_ID` in the console's
-   environment (`.env` next to `compose.prod.yaml`), then restart the console.
-4. Console -> **Settings -> github connection** -> **connect github**. Enter the
-   code it shows on github.com; the page picks up the connection itself.
+   Name it anything, and set the homepage URL to your console.
+2. Set **Authorization callback URL** to exactly
+   `https://console.<your-domain>/api/github/callback`. GitHub refuses to
+   return to any other address, so a typo here is the one thing that will
+   stop this working.
+3. **Register application**, then **Generate a new client secret**.
+4. Put the **Client ID** and **Client secret** into Console -> **Settings ->
+   github connection**. Nothing to edit on the server, and no restart.
+   (`CONSOLE_GITHUB_CLIENT_ID` in `.env` still works for the id if you would
+   rather keep it in the compose file; the saved one wins, the same as the
+   Cloudflare account id.)
+5. Same section -> **connect github**. GitHub asks you to approve, sends you
+   straight back, and the page says who it connected as.
+
+The callback needs no Access bypass: GitHub redirects your *browser* to it, so
+it arrives with your Access session, unlike `/hooks`, which GitHub's servers
+call directly.
 
 There is deliberately no default client id: this is a public project, and a
 shipped one would make its author the OAuth trust anchor for every install.
-Without a client id the feature is simply off, and the repo field stays free
-text. Note the scope: an OAuth app can only ask for the coarse `repo` scope, so
-the stored token can read and write your repos. Disconnecting forgets the token
-here; revoke the authorization on GitHub to end it there too.
+Without an app configured the feature is simply off, and the repo field stays
+free text. Note the scope: an OAuth app can only ask for the coarse `repo`
+scope, so the stored token can read and write your repos. Disconnecting forgets
+the token here; revoke the authorization on GitHub to end it there too.
 
 **GitHub packages token** (pull private app images). A private repo's GHCR
 package is private, so the console needs a read token to pull it:
@@ -373,6 +383,18 @@ git pull
 docker compose -f compose.prod.yaml pull console
 docker compose -f compose.prod.yaml up -d console
 ```
+
+**The deploy job only recreates the console.** A change to Traefik's or
+cloudflared's section of `compose.prod.yaml` reaches the box on the next
+`git pull` but does nothing until you recreate that service yourself, on the
+box:
+
+```
+docker compose -f compose.prod.yaml up -d traefik
+```
+
+Traefik restarts in a second or two, and every site is briefly unreachable
+while it does, so it is worth doing deliberately rather than by surprise.
 
 To roll back, pin an older image instead of `latest`. CI tags every build with
 the short sha of its commit to `main`, so pick one from the **Actions** tab or
