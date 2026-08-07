@@ -27,7 +27,7 @@ async def test_start_device_flow_returns_what_the_browser_needs(http):
         }
     )
 
-    result = await github.start_device_flow()
+    result = await github.start_device_flow(GITHUB_CLIENT_ID)
 
     assert result["device_code"] == "dev-123"
     assert result["user_code"] == "ABCD-1234"
@@ -37,10 +37,25 @@ async def test_start_device_flow_returns_what_the_browser_needs(http):
     assert kwargs["data"]["scope"] == config.GITHUB_SCOPE
 
 
-async def test_start_device_flow_without_a_client_id_is_unavailable(monkeypatch):
+async def test_client_id_prefers_the_saved_one_over_the_env(db, monkeypatch):
+    # Same arrangement as the Cloudflare credentials: Settings wins, so this can
+    # be set up in the browser without editing a file on the box.
+    monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "Iv1.fromenv")
+    async with db() as session:
+        assert await github.client_id(session) == "Iv1.fromenv"
+        await settings_store.set_value(
+            session, settings_store.GITHUB_CLIENT_ID, "Iv1.fromsettings"
+        )
+        await session.commit()
+        assert await github.client_id(session) == "Iv1.fromsettings"
+
+
+async def test_without_a_client_id_anywhere_the_flow_is_unavailable(db, monkeypatch):
     monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "")
-    with pytest.raises(github.DeviceFlowUnavailable):
-        await github.start_device_flow()
+    async with db() as session:
+        assert await github.client_id(session) == ""
+        with pytest.raises(github.DeviceFlowUnavailable):
+            await github.require_client_id(session)
 
 
 @pytest.mark.parametrize(
@@ -55,7 +70,7 @@ async def test_start_device_flow_without_a_client_id_is_unavailable(monkeypatch)
 async def test_poll_maps_github_errors_to_states(http, error, expected):
     http.routes["login/oauth/access_token"] = FakeResponse({"error": error})
 
-    state, token = await github.poll_device_flow("dev-123")
+    state, token = await github.poll_device_flow(GITHUB_CLIENT_ID, "dev-123")
 
     assert (state, token) == (expected, None)
 
@@ -63,7 +78,7 @@ async def test_poll_maps_github_errors_to_states(http, error, expected):
 async def test_poll_returns_the_token_once_approved(http):
     http.routes["login/oauth/access_token"] = FakeResponse({"access_token": "gho_abc"})
 
-    state, token = await github.poll_device_flow("dev-123")
+    state, token = await github.poll_device_flow(GITHUB_CLIENT_ID, "dev-123")
 
     assert (state, token) == (github.CONNECTED, "gho_abc")
 
@@ -74,14 +89,14 @@ async def test_poll_raises_on_an_error_it_does_not_know(http):
     )
 
     with pytest.raises(github.GitHubApiError, match="bad id"):
-        await github.poll_device_flow("dev-123")
+        await github.poll_device_flow(GITHUB_CLIENT_ID, "dev-123")
 
 
 async def test_unreachable_github_is_a_readable_error(http):
     http.routes["login/device/code"] = httpx.ConnectError("dns")
 
     with pytest.raises(github.GitHubApiError, match="could not reach GitHub"):
-        await github.start_device_flow()
+        await github.start_device_flow(GITHUB_CLIENT_ID)
 
 
 # --- token storage ---------------------------------------------------------

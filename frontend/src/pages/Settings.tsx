@@ -76,7 +76,7 @@ export default function Settings() {
           </div>
 
           <CollapsibleSection id="github" title="github connection">
-            <GitHubConnection />
+            <GitHubConnection clientIdSet={isSet('github_client_id')} />
           </CollapsibleSection>
 
           <CollapsibleSection id="ghcr" title="github packages token">
@@ -761,7 +761,7 @@ function Dot({ on, label }: { on: boolean; label: string }) {
    The token is outbound only. It lets the console read your repo list and a
    repo's console.toml; it grants nobody access to this console, which is still
    Cloudflare Access's job alone. */
-function GitHubConnection() {
+function GitHubConnection({ clientIdSet }: { clientIdSet: boolean }) {
   const queryClient = useQueryClient()
   const { data: status } = useQuery({
     queryKey: ['github-status'],
@@ -771,6 +771,11 @@ function GitHubConnection() {
   const [outcome, setOutcome] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
+
+  // Either source counts. Saving the client id below refreshes the settings
+  // query but not this section's status, so reading both is what makes the
+  // page react to the save instead of waiting for a reload.
+  const configured = clientIdSet || status?.client_configured === true
 
   const start = useMutation({
     mutationFn: startGitHubDeviceFlow,
@@ -831,7 +836,7 @@ function GitHubConnection() {
         call GitHub; it gives nobody access to the console.
       </p>
 
-      {status && !status.client_configured && (
+      {status && !configured && (
         <>
           <Callout>
             No OAuth client id is set, so there is nothing to connect to yet.
@@ -856,9 +861,8 @@ function GitHubConnection() {
                 On the app&apos;s page, tick <UI>Enable Device Flow</UI> and save.
               </>,
               <>
-                Copy the <UI>Client ID</UI> and set{' '}
-                <Code>CONSOLE_GITHUB_CLIENT_ID</Code> in the console&apos;s
-                environment, then restart it.
+                Copy the <UI>Client ID</UI> and paste it below. Nothing to edit
+                on the server, and no restart.
               </>,
             ]}
             link={{
@@ -867,6 +871,20 @@ function GitHubConnection() {
             }}
           />
         </>
+      )}
+
+      {/* Shown whenever it came from Settings, so it can be corrected or
+          cleared. An id set through CONSOLE_GITHUB_CLIENT_ID instead is left
+          alone: the env wins nothing here, but saving one would quietly
+          override the file the operator chose to keep. */}
+      {(clientIdSet || !configured) && (
+        <SettingField
+          keyName="github_client_id"
+          label="client id"
+          placeholder="Iv23li… (not a secret)"
+          isSet={clientIdSet}
+          secret={false}
+        />
       )}
 
       {status?.connected && status.error && (
@@ -950,7 +968,7 @@ function GitHubConnection() {
       ) : (
         <button
           type="button"
-          disabled={!status?.client_configured || start.isPending}
+          disabled={!configured || start.isPending}
           className="btn btn-primary btn-sm self-start font-mono"
           onClick={() => start.mutate()}
         >

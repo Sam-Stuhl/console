@@ -53,9 +53,9 @@ services:
       # The GitHub account allowed to deploy here. Unset rejects every webhook.
       CONSOLE_OIDC_OWNER: ${CONSOLE_OIDC_OWNER:?set CONSOLE_OIDC_OWNER in .env (your GitHub account name)}
       CONSOLE_OIDC_AUDIENCE: console
-      # Blank unless set in .env: the GitHub connection is then simply off (the
-      # repo picker stays free text). Your own OAuth app's client id, with
-      # device flow enabled. See docs/server-setup.md step 9.
+      # Optional. The GitHub connection's client id is normally saved in
+      # Settings, in the browser; set it here instead if you would rather keep
+      # it in the compose file. See docs/server-setup.md step 9.
       CONSOLE_GITHUB_CLIENT_ID: ${CONSOLE_GITHUB_CLIENT_ID:-}
       CONSOLE_KEY_FILE: /run/secrets/console_key
       CONSOLE_DB_PATH: /data/console.db

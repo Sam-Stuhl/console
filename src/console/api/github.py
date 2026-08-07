@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import config, github, settings_store
+from console import github, settings_store
 from console.db.session import get_session
 
 router = APIRouter(prefix="/api/github")
@@ -29,11 +29,12 @@ async def status(session: AsyncSession = Depends(get_session)) -> dict:
     """Whether a connection is possible, whether one exists, and who it is.
     The login call is also a liveness check: a revoked token reports connected
     with an error rather than silently failing later at the point of use."""
+    configured = bool(await github.client_id(session))
     try:
         token = await github.resolve_token(session)
     except github.GitHubNotConnected:
         return {
-            "client_configured": bool(config.GITHUB_CLIENT_ID),
+            "client_configured": configured,
             "connected": False,
             "login": None,
             "error": None,
@@ -44,7 +45,7 @@ async def status(session: AsyncSession = Depends(get_session)) -> dict:
     except github.GitHubApiError as exc:
         error = str(exc)
     return {
-        "client_configured": bool(config.GITHUB_CLIENT_ID),
+        "client_configured": configured,
         "connected": True,
         "login": login,
         "error": error,
@@ -52,11 +53,11 @@ async def status(session: AsyncSession = Depends(get_session)) -> dict:
 
 
 @router.post("/device")
-async def start_device_flow() -> dict:
+async def start_device_flow(session: AsyncSession = Depends(get_session)) -> dict:
     """Begin the flow. The device code comes back to the browser and is sent
     back with each poll, so the console holds no pending state."""
     try:
-        return await github.start_device_flow()
+        return await github.start_device_flow(await github.require_client_id(session))
     except github.DeviceFlowUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except github.GitHubApiError as exc:
@@ -69,7 +70,9 @@ async def poll_device_flow(
 ) -> dict:
     """One poll of a flow in progress. Stores the token once it arrives."""
     try:
-        state, token = await github.poll_device_flow(body.device_code)
+        state, token = await github.poll_device_flow(
+            await github.require_client_id(session), body.device_code
+        )
     except github.DeviceFlowUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except github.GitHubApiError as exc:

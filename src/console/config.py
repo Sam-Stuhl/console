@@ -45,10 +45,14 @@ WORKFLOW_REPO = os.environ.get("CONSOLE_WORKFLOW_REPO", "Sam-Stuhl/console")
 # This is a credential the console uses to call GitHub, never a way to log in
 # to the console; Cloudflare Access remains the only inbound gate.
 #
-# The client id has no default on purpose. This is a public project, so a
-# shipped default would make the upstream author the OAuth trust anchor for
-# every install; each operator registers their own OAuth app (device flow
-# enabled) instead. Unset simply turns the feature off.
+# The client id is normally saved in Settings, in the browser; this env var is
+# the fallback for anyone who would rather keep it in their compose file, the
+# same arrangement as the Cloudflare account id.
+#
+# It has no default on purpose. This is a public project, so a shipped default
+# would make the upstream author the OAuth trust anchor for every install; each
+# operator registers their own OAuth app (device flow enabled) instead. With
+# neither the setting nor this set, the feature is simply off.
 GITHUB_CLIENT_ID = os.environ.get("CONSOLE_GITHUB_CLIENT_ID", "")
 # Overridable like CONSOLE_CF_API_BASE, so the client can be pointed at a
 # stand-in during development. Nothing but a test should ever change it.

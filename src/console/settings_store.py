@@ -33,6 +33,11 @@ NTFY_SERVER = "ntfy_server"
 # /api/github/*, so connecting and disconnecting is the single write path and
 # the write-only settings API cannot fight with it. Same reasoning as DOMAINS.
 GITHUB_TOKEN = "github_token"
+# The OAuth app's client id, which the device flow needs. Unlike the token this
+# is typed in by the operator, so it rides the ordinary settings API like the
+# Cloudflare account id. Not a secret (device flow has no client secret), but it
+# is stored encrypted with everything else for uniformity.
+GITHUB_CLIENT_ID = "github_client_id"
 # Extra base domains apps can be hosted under, comma-separated, beyond the
 # primary CONSOLE_DOMAIN. Each is a one-time manual Cloudflare setup; the console
 # only records which exist so a project can pick one. Not in KNOWN: domains are
@@ -52,6 +57,7 @@ KNOWN = frozenset(
         BACKUP_PASSPHRASE,
         NTFY_TOPIC,
         NTFY_SERVER,
+        GITHUB_CLIENT_ID,
     }
 )
 
