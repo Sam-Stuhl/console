@@ -21,6 +21,7 @@ form takes a pasted console.toml).
 
 import base64
 import re
+from urllib.parse import urlencode
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,11 +57,11 @@ class FileNotFound(Exception):
     caller can say which one happened."""
 
 
-class DeviceFlowUnavailable(Exception):
+class NotSetUp(Exception):
     def __init__(self) -> None:
         super().__init__(
-            "No GitHub OAuth client id is set. Register an OAuth app with "
-            "device flow enabled and save its client id in Settings."
+            "The GitHub OAuth app is not set up. Save its client id and client "
+            "secret in Settings, and set its callback URL to this console."
         )
 
 
@@ -72,75 +73,61 @@ async def resolve_token(session: AsyncSession) -> str:
 
 
 async def client_id(session: AsyncSession) -> str:
-    """The OAuth app to run the device flow against: the one saved in Settings,
-    falling back to CONSOLE_GITHUB_CLIENT_ID. Settings first for the same reason
-    the Cloudflare credentials work that way, so an operator can set this up in
-    the browser without editing a file on the box and restarting.
+    """The OAuth app to authorize against: the one saved in Settings, falling
+    back to CONSOLE_GITHUB_CLIENT_ID. Settings first for the same reason the
+    Cloudflare credentials work that way, so an operator can set this up in the
+    browser without editing a file on the box and restarting.
 
     Returns "" when neither is set, which means the feature is simply off."""
     stored = await settings_store.get(session, settings_store.GITHUB_CLIENT_ID)
     return stored or config.GITHUB_CLIENT_ID
 
 
-async def require_client_id(session: AsyncSession) -> str:
-    resolved = await client_id(session)
-    if not resolved:
-        raise DeviceFlowUnavailable()
-    return resolved
+async def app_credentials(session: AsyncSession) -> tuple[str, str]:
+    """Client id and secret. Both are needed to complete the redirect, so
+    either one missing means the same thing: not set up yet."""
+    identifier = await client_id(session)
+    secret = await settings_store.get(session, settings_store.GITHUB_CLIENT_SECRET)
+    if not identifier or not secret:
+        raise NotSetUp()
+    return identifier, secret
 
 
-# --- device flow -----------------------------------------------------------
-
-# What a poll came back with. "pending" is the normal case while the operator
-# is still on github.com approving.
-PENDING = "pending"
-CONNECTED = "connected"
-DENIED = "denied"
-EXPIRED = "expired"
+# --- authorization code flow ------------------------------------------------
 
 
-async def start_device_flow(client_id: str) -> dict:
-    """Ask GitHub for a device code. Returns the user-facing code, where to
-    enter it, how often we may poll, and the device code to poll with."""
-    data = await _post_form(
-        config.GITHUB_DEVICE_CODE_URL,
-        {"client_id": client_id, "scope": config.GITHUB_SCOPE},
+def authorize_url(client_id: str, redirect_uri: str, state: str) -> str:
+    """Where to send the operator's browser to approve the console."""
+    query = urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": config.GITHUB_SCOPE,
+            "state": state,
+        }
     )
-    if "device_code" not in data:
-        raise GitHubApiError(f"GitHub declined the device request: {_error(data)}")
-    return {
-        "device_code": data["device_code"],
-        "user_code": data.get("user_code", ""),
-        "verification_uri": data.get("verification_uri", "https://github.com/login/device"),
-        # GitHub's advertised poll floor, and how long the code stays good
-        "interval": int(data.get("interval", 5)),
-        "expires_in": int(data.get("expires_in", 900)),
-    }
+    return f"{config.GITHUB_AUTHORIZE_URL}?{query}"
 
 
-async def poll_device_flow(client_id: str, device_code: str) -> tuple[str, str | None]:
-    """One poll. Returns (state, token); token is set only when CONNECTED."""
+async def exchange_code(
+    client_id: str, client_secret: str, code: str, redirect_uri: str
+) -> str:
+    """Trade the code GitHub handed back for a token. This is the whole point
+    of the redirect: the answer is immediate and definite, so the console knows
+    the authorization worked instead of inferring it."""
     data = await _post_form(
         config.GITHUB_TOKEN_URL,
         {
             "client_id": client_id,
-            "device_code": device_code,
-            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "client_secret": client_secret,
+            "code": code,
+            "redirect_uri": redirect_uri,
         },
     )
     token = data.get("access_token")
-    if token:
-        return CONNECTED, token
-    error = data.get("error")
-    # slow_down means we polled too fast; it is still just "keep waiting", and
-    # the browser already paces itself by the advertised interval.
-    if error in ("authorization_pending", "slow_down"):
-        return PENDING, None
-    if error == "access_denied":
-        return DENIED, None
-    if error in ("expired_token", "device_flow_disabled"):
-        return EXPIRED, None
-    raise GitHubApiError(f"GitHub rejected the device code: {_error(data)}")
+    if not token:
+        raise GitHubApiError(f"GitHub would not exchange the code: {_error(data)}")
+    return token
 
 
 async def _post_form(url: str, form: dict[str, str]) -> dict:

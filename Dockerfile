@@ -25,7 +25,12 @@ RUN pip install --no-cache-dir .
 # The built SPA, at the path main.py expects: <root>/frontend/dist
 COPY --from=frontend /build/dist ./frontend/dist
 
-ENV CONSOLE_DB_PATH=/data/console.db \
+# PYTHONUNBUFFERED so uvicorn's output reaches docker logs as it happens.
+# Without it Python block-buffers stdout when it is a pipe, and the container
+# looks silent: requests that plainly happened leave no trace, which makes
+# anything on the box undiagnosable.
+ENV PYTHONUNBUFFERED=1 \
+    CONSOLE_DB_PATH=/data/console.db \
     CONSOLE_DOMAIN=samstuhl.com \
     CONSOLE_OIDC_AUDIENCE=console \
     CONSOLE_KEY_FILE=/run/secrets/console_key
