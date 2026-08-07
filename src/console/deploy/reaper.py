@@ -3,27 +3,21 @@ forever: a webhook that never arrives, a deploy task lost to a restart, a
 health check hung mid-poll. Table-only; it never touches containers.
 
 SQLite round-trips datetimes naive, while utcnow() is timezone-aware, so
-every comparison here normalizes both sides to naive UTC first."""
+every comparison here normalizes both sides through naive_utc first."""
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from console import config
-from console.db.models import Deployment
+from console.db.models import Deployment, naive_utc
 from console.db.session import SessionLocal
 from console.schema.console_toml import ConsoleConfig
 
 logger = logging.getLogger(__name__)
-
-
-def _naive_utc(value: datetime) -> datetime:
-    if value.tzinfo is not None:
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
-    return value
 
 
 def _deploy_limit(deployment: Deployment) -> int:
@@ -61,7 +55,7 @@ def _age_limit(deployment: Deployment) -> tuple[datetime | None, int, str]:
 
 
 async def reap_once(session: AsyncSession, now: datetime) -> int:
-    now = _naive_utc(now)
+    now = naive_utc(now)
     rows = await session.scalars(
         select(Deployment).where(
             Deployment.status.in_(("building", "queued", "deploying"))
@@ -72,7 +66,7 @@ async def reap_once(session: AsyncSession, now: datetime) -> int:
         started, limit, reason = _age_limit(deployment)
         if started is None:
             continue
-        if (now - _naive_utc(started)).total_seconds() > limit:
+        if (now - naive_utc(started)).total_seconds() > limit:
             deployment.status = "failed"
             deployment.substate = None
             deployment.failure_reason = reason
