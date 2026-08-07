@@ -197,11 +197,40 @@ for the uvicorn "Application startup complete" line.
    covers every private app; public images need nothing.
 5. Push the app repo. Watch the deploy appear and go live in the console.
 
-## 9. Console Settings: private-image pulls and Access logins
+**No Actions, or a broken build?** You do not need any of this to deploy an
+image that already exists. On the project page, under **deployments**, use
+**deploy an image**: give it a full GHCR ref including a tag, and the console
+pulls and runs it through the same health-checked swap. It reads the repo's
+`console.toml` for you if a GitHub account is connected (step 9), and takes a
+pasted one if GitHub is unreachable. Nothing is ever built on the server.
 
-Two server-level credentials live in the console's **Settings** page (top nav),
+## 9. Console Settings: GitHub, private-image pulls, and Access logins
+
+The server-level credentials live in the console's **Settings** page (top nav),
 stored encrypted with the same key as your secrets. Add each once, in the
 browser: no files, no compose edits.
+
+**GitHub connection** (optional). Lets you pick a repo from a list when
+registering a project instead of typing `owner/repo`, and lets the console read
+a repo's `console.toml` when you deploy an image yourself. It is an outbound
+credential: the console calls GitHub with it, and it gives nobody access to the
+console, which is still Cloudflare Access's job alone.
+
+1. GitHub -> **Settings -> Developer settings -> OAuth Apps -> New OAuth App**.
+   Name it anything; the device flow does not use the homepage or callback
+   URLs, so your console's own URL is a fine answer for both.
+2. On the app's page, tick **Enable Device Flow** and save.
+3. Copy the **Client ID** and set `CONSOLE_GITHUB_CLIENT_ID` in the console's
+   environment (`.env` next to `compose.prod.yaml`), then restart the console.
+4. Console -> **Settings -> github connection** -> **connect github**. Enter the
+   code it shows on github.com; the page picks up the connection itself.
+
+There is deliberately no default client id: this is a public project, and a
+shipped one would make its author the OAuth trust anchor for every install.
+Without a client id the feature is simply off, and the repo field stays free
+text. Note the scope: an OAuth app can only ask for the coarse `repo` scope, so
+the stored token can read and write your repos. Disconnecting forgets the token
+here; revoke the authorization on GitHub to end it there too.
 
 **GitHub packages token** (pull private app images). A private repo's GHCR
 package is private, so the console needs a read token to pull it:

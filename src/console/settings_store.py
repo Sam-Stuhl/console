@@ -28,6 +28,11 @@ BACKUP_PASSPHRASE = "backup_passphrase"
 # public ntfy.sh anyone who knows it can read the notifications.
 NTFY_TOPIC = "ntfy_topic"
 NTFY_SERVER = "ntfy_server"
+# The OAuth token for outbound GitHub calls (repo list, reading console.toml),
+# obtained through the device flow. Not in KNOWN: it is written only by
+# /api/github/*, so connecting and disconnecting is the single write path and
+# the write-only settings API cannot fight with it. Same reasoning as DOMAINS.
+GITHUB_TOKEN = "github_token"
 # Extra base domains apps can be hosted under, comma-separated, beyond the
 # primary CONSOLE_DOMAIN. Each is a one-time manual Cloudflare setup; the console
 # only records which exist so a project can pick one. Not in KNOWN: domains are

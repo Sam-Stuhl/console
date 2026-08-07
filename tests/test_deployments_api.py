@@ -1,7 +1,10 @@
+import base64
 from datetime import datetime, timedelta
 
 import pytest
 
+from conftest import FakeResponse
+from console import config, settings_store
 from console.db.models import Deployment, Project
 from console.schema.console_toml import parse_console_toml
 
@@ -219,4 +222,201 @@ async def test_redeploy_in_progress_is_409(client, db, enqueued):
         f"/api/projects/{project_id}/deployments/{building}/redeploy"
     )
     assert response.status_code == 409
+    assert enqueued == []
+
+
+# --- deploying an image with no build webhook -------------------------------
+#
+# The gap this closes: a project whose CI has never run, or is broken, had no
+# way in at all, because only /hooks/build-finished ever created a row.
+
+
+@pytest.fixture
+def owner(monkeypatch):
+    monkeypatch.setattr(config, "OIDC_OWNER", "example-owner")
+
+
+async def connect_github(db):
+    async with db() as session:
+        await settings_store.set_value(session, settings_store.GITHUB_TOKEN, "gho_abc")
+        await session.commit()
+
+
+def toml_response(text=TOML):
+    return FakeResponse(
+        {
+            "type": "file",
+            "encoding": "base64",
+            "size": len(text),
+            "content": base64.encodebytes(text.encode()).decode(),
+        }
+    )
+
+
+async def test_deploy_an_image_reads_console_toml_from_the_repo(
+    client, db, owner, github_http, enqueued
+):
+    project_id = await seed_project(db)
+    await connect_github(db)
+    github_http.routes["/contents/console.toml"] = toml_response()
+
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments",
+        json={"image": "ghcr.io/example-owner/demo:abc1234"},
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "queued"
+    assert enqueued == [body["deployment_id"]]
+    async with db() as session:
+        deployment = await session.get(Deployment, body["deployment_id"])
+    assert deployment.image == "ghcr.io/example-owner/demo:abc1234"
+    assert deployment.sha == "abc1234"  # the tag identifies the build
+    assert deployment.commit_message == "manual deploy of abc1234"
+    assert deployment.config_snapshot == snapshot()
+    # Read from the project's tracked branch unless told otherwise
+    _, url, kwargs = github_http.requests[0]
+    assert url.endswith("/repos/example-owner/demo/contents/console.toml")
+    assert kwargs["params"] == {"ref": "main"}
+
+
+async def test_deploy_an_image_can_read_a_different_ref(
+    client, db, owner, github_http, enqueued
+):
+    project_id = await seed_project(db)
+    await connect_github(db)
+    github_http.routes["/contents/console.toml"] = toml_response()
+
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments",
+        json={"image": "ghcr.io/example-owner/demo:v2", "ref": "release"},
+    )
+
+    assert response.status_code == 202
+    assert github_http.requests[0][2]["params"] == {"ref": "release"}
+
+
+async def test_deploy_an_image_supersedes_an_older_queued_row(
+    client, db, owner, github_http, enqueued
+):
+    project_id = await seed_project(db)
+    await connect_github(db)
+    github_http.routes["/contents/console.toml"] = toml_response()
+    stale = await seed_deployment(db, project_id, "aaaaaaa11111", status="queued")
+
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments",
+        json={"image": "ghcr.io/example-owner/demo:abc1234"},
+    )
+
+    assert response.status_code == 202
+    async with db() as session:
+        assert (await session.get(Deployment, stale)).status == "superseded"
+
+
+async def test_deploy_an_image_outside_the_owner_s_namespace_is_400(
+    client, db, owner, github_http, enqueued
+):
+    project_id = await seed_project(db)
+    await connect_github(db)
+
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments",
+        json={"image": "ghcr.io/someone-else/demo:abc1234"},
+    )
+
+    assert response.status_code == 400
+    assert "not under ghcr.io/example-owner/" in response.json()["detail"]
+    assert enqueued == []
+
+
+async def test_deploy_an_image_without_a_tag_is_400(client, db, owner, enqueued):
+    project_id = await seed_project(db)
+
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments",
+        json={"image": "ghcr.io/example-owner/demo"},
+    )
+
+    assert response.status_code == 400
+    assert "needs a tag" in response.json()["detail"]
+    assert enqueued == []
+
+
+async def test_deploy_an_image_with_invalid_toml_is_400(
+    client, db, owner, github_http, enqueued
+):
+    project_id = await seed_project(db)
+    await connect_github(db)
+    github_http.routes["/contents/console.toml"] = toml_response("[app]\nname = 1\n")
+
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments",
+        json={"image": "ghcr.io/example-owner/demo:abc1234"},
+    )
+
+    assert response.status_code == 400
+    assert "console.toml invalid" in response.json()["detail"]
+    assert enqueued == []
+
+
+async def test_deploy_an_image_with_no_console_toml_in_the_repo_is_400(
+    client, db, owner, github_http, enqueued
+):
+    project_id = await seed_project(db)
+    await connect_github(db)
+    github_http.routes["/contents/console.toml"] = FakeResponse({"message": "Not Found"}, 404)
+
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments",
+        json={"image": "ghcr.io/example-owner/demo:abc1234"},
+    )
+
+    assert response.status_code == 400
+    assert 'no console.toml in example-owner/demo at "main"' in response.json()["detail"]
+    assert enqueued == []
+
+
+async def test_deploy_an_image_without_a_github_connection_is_503(
+    client, db, owner, github_http, enqueued
+):
+    project_id = await seed_project(db)
+
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments",
+        json={"image": "ghcr.io/example-owner/demo:abc1234"},
+    )
+
+    assert response.status_code == 503
+    assert "not connected to GitHub" in response.json()["detail"]
+    assert enqueued == []
+
+
+async def test_a_pasted_console_toml_works_with_github_unreachable(
+    client, db, owner, github_http, enqueued
+):
+    # The fallback that matters: the incident behind this feature was GitHub
+    # being down, so a deploy must not depend on reading the repo.
+    project_id = await seed_project(db)
+
+    response = await client.post(
+        f"/api/projects/{project_id}/deployments",
+        json={"image": "ghcr.io/example-owner/demo:abc1234", "console_toml": TOML},
+    )
+
+    assert response.status_code == 202
+    assert github_http.requests == []
+    async with db() as session:
+        deployment = await session.get(Deployment, response.json()["deployment_id"])
+    assert deployment.config_snapshot == snapshot()
+
+
+async def test_deploy_an_image_for_an_unknown_project_is_404(client, owner, enqueued):
+    response = await client.post(
+        "/api/projects/nope/deployments",
+        json={"image": "ghcr.io/example-owner/demo:abc1234"},
+    )
+
+    assert response.status_code == 404
     assert enqueued == []

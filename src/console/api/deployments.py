@@ -1,14 +1,22 @@
-"""Deploy history and rollback. A rollback is an ordinary deploy of an
-older build: it creates a fresh queued row cloning the target's sha,
-image, and config snapshot, and the engine runs it through the same
-pull / run-alongside / health-check / swap pipeline. History is
-append-only; the target row is never mutated, and a bad rollback fails
+"""Deploy history, and every way to start a deploy that is not a build
+webhook: roll back to an older build, redeploy an existing one, or deploy an
+image straight from GHCR.
+
+All three produce the same thing, a fresh queued row that the engine runs
+through the same pull / run-alongside / health-check / swap pipeline. History
+is append-only; the target row is never mutated, and a bad deploy fails
 without touching what is live.
 
 Rollback targets are builds that actually served traffic (Sam's call):
 the currently live row (rejected as pointless) or rows superseded after
 going live. Rows superseded straight out of the queue never ran, which
-shows as deploy_started_at being null."""
+shows as deploy_started_at being null.
+
+Creating a deployment from an image is the path for a project whose CI has
+never run or is broken: build and deploy are separate concerns, and an image
+sitting in GHCR should be reachable without Actions being healthy. The
+console.toml behind it is read from the repo, which stays its source of
+truth; a pasted one is the fallback for when GitHub itself is unreachable."""
 
 from datetime import datetime
 
@@ -17,14 +25,17 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from console import github
 from console.api.projects import get_project
-from console.db.models import Deployment
+from console.db.models import Deployment, Project
 from console.db.session import get_session
-from console.deploy import engine as deploy_engine
+from console.deploy import engine as deploy_engine, plan
+from console.schema.console_toml import ConfigError, parse_console_toml
 
 router = APIRouter(prefix="/api/projects/{project_id}/deployments")
 
 LIST_LIMIT = 50
+CONSOLE_TOML = "console.toml"
 
 
 class DeploymentOut(BaseModel):
@@ -49,6 +60,12 @@ class DeploymentDetail(DeploymentOut):
     config_snapshot: str | None
     container_name: str | None
     router_priority: int | None
+
+
+class DeploymentCreate(BaseModel):
+    image: str  # full GHCR ref including a tag
+    ref: str | None = None  # git ref to read console.toml from; defaults to the branch
+    console_toml: str | None = None  # fallback for when GitHub cannot be reached
 
 
 async def _get_deployment(
@@ -84,6 +101,83 @@ async def get_deployment(
     return DeploymentDetail.model_validate(deployment)
 
 
+async def _resolve_config(
+    session: AsyncSession, project: Project, ref: str, pasted: str | None
+) -> str:
+    """The console.toml for a manual deploy, as a validated config snapshot.
+
+    Read from the repo unless one was pasted: the file in the repo is the
+    source of truth, and reading it means an image built anywhere can be
+    deployed without retyping its config."""
+    if pasted is None:
+        try:
+            pasted = await github.GitHub(
+                await github.resolve_token(session)
+            ).read_file(project.repo, CONSOLE_TOML, ref)
+        except github.GitHubNotConnected as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except github.FileNotFound:
+            raise HTTPException(
+                status_code=400,
+                detail=f'no {CONSOLE_TOML} in {project.repo} at "{ref}"',
+            )
+        except github.GitHubApiError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+    try:
+        parsed, _ = parse_console_toml(pasted)
+    except ConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return parsed.model_dump_json()
+
+
+@router.post("", status_code=202)
+async def create_deployment(
+    project_id: str,
+    body: DeploymentCreate,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Deploy an image that already exists in GHCR, with no build webhook
+    involved. Nothing is built here: the console pulls what CI, or a laptop,
+    already pushed."""
+    project = await get_project(project_id, session)
+    try:
+        tag = plan.validate_image(body.image)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    ref = (body.ref or project.branch).strip() or project.branch
+    config_snapshot = await _resolve_config(session, project, ref, body.console_toml)
+
+    # The tag identifies the build, the way a commit sha does for a CI deploy:
+    # our own workflow tags with the short sha, so those line up, and any other
+    # tag is kept verbatim so history reads as what was actually deployed.
+    deployment = Deployment(
+        project_id=project_id,
+        sha=tag,
+        commit_message=f"manual deploy of {tag}",
+        image=body.image.strip(),
+        config_snapshot=config_snapshot,
+        status="queued",
+    )
+    session.add(deployment)
+    await deploy_engine.queue(session, deployment)
+    return {"deployment_id": deployment.id, "status": "queued"}
+
+
+def _clone(target: Deployment, commit_message: str) -> Deployment:
+    """A fresh queued row reusing a past build's image and config. The target
+    is never mutated, so history stays append-only."""
+    return Deployment(
+        project_id=target.project_id,
+        sha=target.sha,
+        commit_message=commit_message,
+        image=target.image,
+        config_snapshot=target.config_snapshot,
+        run_url=target.run_url,
+        status="queued",
+    )
+
+
 @router.post("/{deployment_id}/rollback", status_code=202)
 async def rollback(
     project_id: str,
@@ -104,20 +198,9 @@ async def rollback(
             status_code=400, detail="target has no image or config snapshot"
         )
 
-    deployment = Deployment(
-        project_id=project_id,
-        sha=target.sha,
-        commit_message=f"rollback to {target.sha[:7]}",
-        image=target.image,
-        config_snapshot=target.config_snapshot,
-        run_url=target.run_url,
-        status="queued",
-    )
+    deployment = _clone(target, f"rollback to {target.sha[:7]}")
     session.add(deployment)
-    await session.flush()
-    await deploy_engine.supersede_older_queued(session, project_id, deployment.id)
-    await session.commit()
-    deploy_engine.enqueue(deployment.id)
+    await deploy_engine.queue(session, deployment)
     return {"deployment_id": deployment.id, "status": "queued"}
 
 
@@ -139,18 +222,7 @@ async def redeploy(
             status_code=400, detail="this build produced no image to redeploy"
         )
 
-    deployment = Deployment(
-        project_id=project_id,
-        sha=target.sha,
-        commit_message=f"redeploy of {target.sha[:7]}",
-        image=target.image,
-        config_snapshot=target.config_snapshot,
-        run_url=target.run_url,
-        status="queued",
-    )
+    deployment = _clone(target, f"redeploy of {target.sha[:7]}")
     session.add(deployment)
-    await session.flush()
-    await deploy_engine.supersede_older_queued(session, project_id, deployment.id)
-    await session.commit()
-    deploy_engine.enqueue(deployment.id)
+    await deploy_engine.queue(session, deployment)
     return {"deployment_id": deployment.id, "status": "queued"}

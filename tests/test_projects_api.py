@@ -27,6 +27,14 @@ async def test_create_and_list(client):
     assert [p["name"] for p in listing.json()] == ["notion-sync"]
 
 
+async def test_image_hint_matches_what_the_build_workflow_pushes(client):
+    # GHCR paths are lowercase; the workflow pushes ghcr.io/<repo lowercased>,
+    # and the deploy-an-image form prefills with this so only a tag is typed.
+    body = (await create(client, repo="Example-Owner/Notion-Sync")).json()
+
+    assert body["image_hint"] == "ghcr.io/example-owner/notion-sync:"
+
+
 async def test_subdomain_console_rejected(client):
     response = await create(client, subdomain="console")
     assert response.status_code == 400

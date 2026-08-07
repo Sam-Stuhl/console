@@ -93,3 +93,46 @@ def test_health_url_is_container_to_container():
         plan.health_url("app-demo-e5f6a7b", 80, "/health")
         == "http://app-demo-e5f6a7b:80/health"
     )
+
+
+# --- which images may be deployed ------------------------------------------
+
+
+@pytest.fixture
+def owner(monkeypatch):
+    monkeypatch.setattr(config, "OIDC_OWNER", "Example-Owner")
+
+
+def test_image_prefix_is_the_owner_s_lowercase_ghcr_namespace(owner):
+    assert plan.image_prefix() == "ghcr.io/example-owner/"
+
+
+def test_validate_image_returns_the_tag(owner):
+    assert plan.validate_image("ghcr.io/example-owner/demo:abc1234") == "abc1234"
+
+
+def test_validate_image_accepts_a_non_sha_tag(owner):
+    assert plan.validate_image("ghcr.io/example-owner/demo:v1.2.3") == "v1.2.3"
+
+
+def test_validate_image_rejects_another_namespace(owner):
+    with pytest.raises(ValueError, match="not under ghcr.io/example-owner/"):
+        plan.validate_image("ghcr.io/someone-else/demo:abc1234")
+
+
+def test_validate_image_rejects_another_registry(owner):
+    with pytest.raises(ValueError, match="not under"):
+        plan.validate_image("docker.io/example-owner/demo:abc1234")
+
+
+def test_validate_image_requires_a_tag(owner):
+    with pytest.raises(ValueError, match="needs a tag"):
+        plan.validate_image("ghcr.io/example-owner/demo")
+
+
+def test_validate_image_without_an_owner_configured_trusts_nothing(monkeypatch):
+    # Mirrors oidc.verify: an unset owner rejects everything, and says why
+    # rather than complaining that the ref is not under "ghcr.io//".
+    monkeypatch.setattr(config, "OIDC_OWNER", "")
+    with pytest.raises(ValueError, match="no CONSOLE_OIDC_OWNER is set"):
+        plan.validate_image("ghcr.io/example-owner/demo:abc1234")

@@ -114,6 +114,10 @@ export default function SetupSection({
           <span className="text-faint">3.</span> push to {branch}; the build
           workflow notifies the console and the deploy shows up here
         </li>
+        <li className="text-muted">
+          already have an image in the registry? you do not need any of this to
+          deploy it: use "deploy an image" under deployments below.
+        </li>
       </ol>
     </div>
   )
