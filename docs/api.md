@@ -4,22 +4,39 @@ The console has a second, token-authenticated surface for callers that are not
 a person in a browser: a REST API under `/v1`, and an MCP server at `/mcp` for
 AI agents. Both do the same things and share the same tokens.
 
-This exists because Cloudflare Access, which gates the web console, only knows
-how to authenticate an interactive browser login. A `curl` or an agent gets a
-login page, not JSON.
+It exists because the console has no login of its own. The web UI is protected
+by whatever gate you put in front of it, and an edge gate authenticates a person
+clicking through a browser. A `curl` or an agent cannot do that, so it needs a
+credential the console itself understands.
 
-## The trade you are making
+## Reaching it, and the trade that can involve
 
-The console's normal rule is that there is **no auth inside the app**: Access at
-the edge is the only gate. `/v1` and `/mcp` are the documented exception, and
-they only work if you punch a Bypass hole in Access for those two paths (see
-`docs/server-setup.md`, step 4).
+The token check is always on. Everything past that depends on how your install
+is reached, and there are two shapes:
 
-That means those paths are exposed to the internet with a console-issued token
-as the only thing protecting your projects, deploys, logs, and app controls. The
-token is a 256-bit random string stored only as a SHA-256 hash, so guessing one
-is not a realistic threat and a stolen copy of the database yields nothing
-usable. Losing a token is the risk that matters, and revocation is the answer.
+**If the console is only reachable on a network you trust** (a LAN, a VPN or
+tailnet, an SSH tunnel, a published port on the box itself), there is nothing to
+configure. Mint a token, point your script or agent at
+`http://<your-console-host>/v1`, and you are done. The API is no more exposed
+than the web console already is.
+
+**If the console sits behind an edge gate that requires an interactive login**
+(the documented setup uses Cloudflare Access), that gate will turn a `curl` away
+with a login page. Machine callers cannot complete a browser login, so those two
+paths have to be excepted from it: `docs/server-setup.md`, step 4, covers the
+Cloudflare version. Understand what that buys before you do it. Excepting a path
+from the edge gate means it is reachable from the whole internet, with your
+token as the only thing protecting your projects, deploys, logs, and app
+controls.
+
+Either way the token itself is the same: a 256-bit random string stored only as
+a SHA-256 hash, so guessing one is not a realistic threat and a stolen copy of
+the database yields nothing usable. Losing a token is the risk that matters, and
+revocation is the answer.
+
+The console's normal rule is that there is **no auth inside the app**, because
+the edge gate handles it. `/v1` and `/mcp` are the one documented exception, for
+callers that cannot log in through a browser.
 
 Secret values are unreachable from here. Not filtered: absent. No endpoint and
 no tool returns one, so there is no check that can be got wrong. Reading or
@@ -135,9 +152,9 @@ failure it has to guess at.
 
 ## Things worth knowing
 
-- **A token cannot mint another token.** Token management is only in the web
-  console, behind Access, so one leaked token cannot renew itself into
-  permanent access.
+- **A token cannot mint another token.** Token management exists only in the web
+  UI, behind whatever gate fronts it, so one leaked token cannot renew itself
+  into permanent access.
 - **Settings are not writable here.** The GHCR token, Cloudflare token, backup
   passphrase, and ntfy topic are all credential material and stay in the UI.
 - **There is no terminal over the API.** The interactive container shell is a
