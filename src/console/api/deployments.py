@@ -25,17 +25,15 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import github
 from console.api.projects import get_project
-from console.db.models import Deployment, Project
+from console.db.models import Deployment
 from console.db.session import get_session
-from console.deploy import engine as deploy_engine, history, plan
-from console.schema.console_toml import ConfigError, parse_console_toml
+from console.deploy import engine as deploy_engine, history, manual
+from console.errors import Invalid, Unavailable, Upstream
 
 router = APIRouter(prefix="/api/projects/{project_id}/deployments")
 
 LIST_LIMIT = 50
-CONSOLE_TOML = "console.toml"
 
 
 class DeploymentOut(BaseModel):
@@ -101,35 +99,6 @@ async def get_deployment(
     return DeploymentDetail.model_validate(deployment)
 
 
-async def _resolve_config(
-    session: AsyncSession, project: Project, ref: str, pasted: str | None
-) -> str:
-    """The console.toml for a manual deploy, as a validated config snapshot.
-
-    Read from the repo unless one was pasted: the file in the repo is the
-    source of truth, and reading it means an image built anywhere can be
-    deployed without retyping its config."""
-    if pasted is None:
-        try:
-            pasted = await github.GitHub(
-                await github.resolve_token(session)
-            ).read_file(project.repo, CONSOLE_TOML, ref)
-        except github.GitHubNotConnected as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
-        except github.FileNotFound:
-            raise HTTPException(
-                status_code=400,
-                detail=f'no {CONSOLE_TOML} in {project.repo} at "{ref}"',
-            )
-        except github.GitHubApiError as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
-    try:
-        parsed, _ = parse_console_toml(pasted)
-    except ConfigError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return parsed.model_dump_json()
-
-
 @router.post("", status_code=202)
 async def create_deployment(
     project_id: str,
@@ -141,26 +110,15 @@ async def create_deployment(
     already pushed."""
     project = await get_project(project_id, session)
     try:
-        tag = plan.validate_image(body.image)
-    except ValueError as exc:
+        deployment = await manual.deploy_image(
+            session, project, body.image, body.ref, body.console_toml
+        )
+    except Invalid as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-
-    ref = (body.ref or project.branch).strip() or project.branch
-    config_snapshot = await _resolve_config(session, project, ref, body.console_toml)
-
-    # The tag identifies the build, the way a commit sha does for a CI deploy:
-    # our own workflow tags with the short sha, so those line up, and any other
-    # tag is kept verbatim so history reads as what was actually deployed.
-    deployment = Deployment(
-        project_id=project_id,
-        sha=tag,
-        commit_message=f"manual deploy of {tag}",
-        image=body.image.strip(),
-        config_snapshot=config_snapshot,
-        status="queued",
-    )
-    session.add(deployment)
-    await deploy_engine.queue(session, deployment)
+    except Unavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Upstream as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     return {"deployment_id": deployment.id, "status": "queued"}
 
 

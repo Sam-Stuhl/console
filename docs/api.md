@@ -56,8 +56,8 @@ live or down, credential expiry, backup status. It is the call to lead with.
 The full endpoint list, with request and response shapes, is served from the
 console itself:
 
-- `https://console.<your-domain>/v1/docs` — browsable, with an Authorize button
-- `https://console.<your-domain>/v1/openapi.json` — the spec
+- `https://console.<your-domain>/v1/docs`: browsable, with an Authorize button
+- `https://console.<your-domain>/v1/openapi.json`: the spec
 
 Both are deliberately un-gated: they describe the shape of the API and carry no
 data. Everything that returns anything real needs a token.
@@ -77,6 +77,7 @@ subdomain, so `/v1/projects/blog` works as well as the UUID.
 | `GET /v1/projects/{project}/secrets` | secret **names** and when each changed |
 | `GET /v1/projects/{project}/commands[/{id}]` | one-off command history and output |
 | `GET /v1/backups` | backup status and history |
+| `POST /v1/projects/{project}/deployments` | deploy an image that already exists in the registry |
 | `POST /v1/projects/{project}/deployments/{id}/rollback` | roll back to a build that served traffic |
 | `POST /v1/projects/{project}/deployments/{id}/redeploy` | re-run a build's image and config |
 | `POST /v1/projects/{project}/controls/{start\|stop\|restart}` | container controls |
@@ -87,8 +88,10 @@ subdomain, so `/v1/projects/blog` works as well as the UUID.
 
 Writes need a `write` token; a `read` token gets a 403 that says so.
 
-Deploying an arbitrary image is not here yet. It arrives with the manual-deploy
-work.
+Deploying an image builds nothing: the console pulls what CI, or a laptop,
+already pushed. The image's namespace must match `CONSOLE_OIDC_OWNER`, so the
+API cannot be used to make the console pull a stranger's image. A project's
+`image_hint` gives you the prefix to put a tag on.
 
 ### Errors
 
@@ -120,11 +123,11 @@ with your console's real URL.
 The server ships instructions telling an agent how to work the console: start
 at `get_system`, then `list_projects`, and the usual path for diagnosing a sick
 app (`get_project` -> `get_container` -> `get_app_logs` -> `list_deployments`).
-Twenty tools, named for what they do: `get_system`, `list_projects`,
+Twenty-one tools, named for what they do: `get_system`, `list_projects`,
 `get_project`, `list_deployments`, `get_deployment`, `get_container`,
 `get_app_logs`, `list_secret_keys`, `list_commands`, `get_command`,
-`get_backups`, and the write tools `rollback_deployment`, `redeploy`,
-`control_app`, `run_command`, `create_project`, `delete_project`,
+`get_backups`, and the write tools `deploy_image`, `rollback_deployment`,
+`redeploy`, `control_app`, `run_command`, `create_project`, `delete_project`,
 `set_project_domain`, `set_project_access`, `trigger_backup`.
 
 A `read` token calling a write tool gets a tool error saying so, rather than a

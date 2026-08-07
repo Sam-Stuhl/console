@@ -26,7 +26,7 @@ from console.db.models import (
     ProjectHealth,
     Secret,
 )
-from console.deploy import engine as deploy_engine, history
+from console.deploy import engine as deploy_engine, history, manual
 from console.docker import containers as docker_containers
 from console.docker.client import get_client, run
 from console.errors import Conflict, Invalid, NotFound, Unavailable
@@ -83,6 +83,8 @@ def _project(
         health=health,
         deploy_status=deploy_status,
         is_live=is_live,
+        # GHCR paths are lowercase, which is what the build workflow pushes to.
+        image_hint=f"ghcr.io/{project.repo.lower()}:",
         created_at=project.created_at,
     )
 
@@ -271,6 +273,23 @@ async def get_deployment(
     return models.DeploymentDetail.model_validate(
         await _deployment(session, project, deployment_id)
     )
+
+
+async def deploy_image(
+    session: AsyncSession,
+    ref: str,
+    image: str,
+    git_ref: str | None = None,
+    console_toml: str | None = None,
+) -> models.Accepted:
+    """Deploy an image that already exists in the registry. Nothing is built
+    here; the console pulls what CI, or a laptop, already pushed. The
+    console.toml is read from the repo unless one is pasted."""
+    project = await resolve_project(session, ref)
+    deployment = await manual.deploy_image(
+        session, project, image, git_ref, console_toml
+    )
+    return models.Accepted(id=deployment.id, status="queued")
 
 
 async def rollback(

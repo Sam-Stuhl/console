@@ -28,3 +28,9 @@ class Conflict(ConsoleError):
 
 class Unavailable(ConsoleError):
     """A dependency the console needs is not configured or not reachable."""
+
+
+class Upstream(ConsoleError):
+    """A service the console called answered, but with a failure of its own.
+    Distinct from Unavailable so a caller can tell "GitHub is broken" from
+    "you have not connected GitHub"."""

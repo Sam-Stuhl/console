@@ -11,7 +11,7 @@ endpoint added without a scope dependency should fail here rather than ship."""
 import docker.errors
 import pytest
 
-from console import tokens
+from console import config, tokens
 from console.db.models import Deployment, Project, Secret, utcnow
 from console.secrets import crypto
 from console.v1.rest import router as v1_router
@@ -127,6 +127,7 @@ def fake_docker(monkeypatch):
 # unguarded new write endpoint shows up as a failing test.
 WRITE_ROUTES = [
     ("post", "/v1/projects"),
+    ("post", "/v1/projects/blog/deployments"),
     ("delete", "/v1/projects/blog"),
     ("put", "/v1/projects/blog/access"),
     ("put", "/v1/projects/blog/domain"),
@@ -520,6 +521,55 @@ async def test_run_command_rejects_a_blank_command(client, project, write_auth):
         "/v1/projects/blog/commands", json={"command": "   "}, headers=write_auth
     )
     assert res.status_code == 400
+
+
+async def test_deploy_image_rejects_a_malformed_image(client, project, write_auth):
+    res = await client.post(
+        "/v1/projects/blog/deployments",
+        json={"image": "no-tag-here", "console_toml": "[app]\nname = 'blog'\n"},
+        headers=write_auth,
+    )
+    assert res.status_code == 400
+
+
+async def test_deploy_image_refuses_an_untrusted_namespace(
+    client, project, write_auth, monkeypatch
+):
+    """The image namespace is pinned to the configured owner, so /v1 cannot be
+    used to make the console pull a stranger's image."""
+    monkeypatch.setattr(config, "OIDC_OWNER", "example-owner")
+    res = await client.post(
+        "/v1/projects/blog/deployments",
+        json={"image": "ghcr.io/someone-else/blog:abc1234"},
+        headers=write_auth,
+    )
+    assert res.status_code == 400
+
+
+async def test_deploy_image_queues_with_a_pasted_toml(
+    client, project, write_auth, monkeypatch
+):
+    """A pasted console.toml is the path that does not need GitHub, so this
+    exercises the whole queueing path without a network stub."""
+    monkeypatch.setattr(config, "OIDC_OWNER", "owner")
+    toml = '[app]\nname = "blog"\nsubdomain = "blog"\nport = 8000\n'
+    res = await client.post(
+        "/v1/projects/blog/deployments",
+        json={"image": "ghcr.io/owner/blog:abc1234", "console_toml": toml},
+        headers=write_auth,
+    )
+    assert res.status_code == 202, res.text
+    assert res.json()["status"] == "queued"
+
+    listed = (await client.get("/v1/projects/blog/deployments", headers=write_auth)).json()
+    assert listed[0]["sha"] == "abc1234"
+    assert listed[0]["image"] == "ghcr.io/owner/blog:abc1234"
+
+
+async def test_project_carries_an_image_hint(client, project, read_auth):
+    """So a caller can build the image ref for a deploy without guessing."""
+    body = (await client.get("/v1/projects/blog", headers=read_auth)).json()
+    assert body["image_hint"] == "ghcr.io/owner/blog:"
 
 
 async def test_backup_trigger_reports_when_unconfigured(client, write_auth):

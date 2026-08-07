@@ -169,6 +169,22 @@ async def get_backups() -> dict:
 
 
 @server.tool()
+async def deploy_image(
+    project: str,
+    image: str,
+    ref: str | None = None,
+    console_toml: str | None = None,
+) -> dict:
+    """Deploy an image that already exists in the registry. Requires a write
+    token. Nothing is built: the console pulls what CI, or a laptop, already
+    pushed, so use this when CI is broken or was never set up. image is a full
+    ref including a tag; get_project's image_hint gives you the prefix. The
+    console.toml is read from the repo unless you pass one."""
+    _require_write()
+    return await _call(service.deploy_image, project, image, ref, console_toml)
+
+
+@server.tool()
 async def rollback_deployment(project: str, deployment_id: str) -> dict:
     """Roll back to an earlier build that served traffic. Requires a write
     token. Creates a fresh deployment; the live app is not touched until the

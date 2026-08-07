@@ -18,7 +18,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from console import config
 from console.db.session import get_session
-from console.errors import ConsoleError, Conflict, Invalid, NotFound, Unavailable
+from console.errors import (
+    ConsoleError,
+    Conflict,
+    Invalid,
+    NotFound,
+    Unavailable,
+    Upstream,
+)
 from console.v1 import models, service
 from console.v1.auth import require_token, require_write
 
@@ -42,7 +49,13 @@ console behind Cloudflare Access.
 
 # console.errors carry a message written for the caller; the surface decides
 # only what status code each kind deserves.
-STATUS = {NotFound: 404, Invalid: 400, Conflict: 409, Unavailable: 503}
+STATUS = {
+    NotFound: 404,
+    Invalid: 400,
+    Conflict: 409,
+    Unavailable: 503,
+    Upstream: 502,
+}
 
 
 def install_error_handler(app) -> None:
@@ -95,6 +108,17 @@ class DomainUpdate(BaseModel):
 
 class CommandCreate(BaseModel):
     command: str = Field(min_length=1, max_length=4096)
+
+
+class DeploymentCreate(BaseModel):
+    image: str = Field(description="full image ref including a tag")
+    ref: str | None = Field(
+        default=None,
+        description="git ref to read console.toml from; defaults to the project's branch",
+    )
+    console_toml: str | None = Field(
+        default=None, description="fallback for when GitHub cannot be reached"
+    )
 
 
 # ------------------------------------------------------------------- reads
@@ -251,6 +275,22 @@ async def set_domain(
     _=Depends(require_write),
 ) -> models.DomainChange:
     return await service.set_domain(session, project, body.domain, body.repoint)
+
+
+@router.post(
+    "/projects/{project}/deployments",
+    status_code=202,
+    summary="Deploy an image that already exists in the registry",
+)
+async def deploy_image(
+    project: str,
+    body: DeploymentCreate,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_write),
+) -> models.Accepted:
+    return await service.deploy_image(
+        session, project, body.image, body.ref, body.console_toml
+    )
 
 
 @router.post(
