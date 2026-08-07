@@ -37,4 +37,13 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8000
 
 # Migrations run in the app's lifespan on startup, before it serves.
-CMD ["uvicorn", "console.main:app", "--app-dir", "src", "--host", "0.0.0.0", "--port", "8000"]
+#
+# --forwarded-allow-ips=* so X-Forwarded-Proto from Traefik is honored. Uvicorn
+# trusts those headers only from 127.0.0.1 by default, and Traefik reaches this
+# container from a docker network address, so without it the app believes every
+# request arrived over plain http: absolute URLs it builds come out as http://
+# on an https site, and cookies it marks secure-if-https never are. Trusting
+# the header is safe here because nothing can reach this container except
+# through Traefik; no port is published to the host.
+CMD ["uvicorn", "console.main:app", "--app-dir", "src", "--host", "0.0.0.0", \
+     "--port", "8000", "--forwarded-allow-ips", "*"]
