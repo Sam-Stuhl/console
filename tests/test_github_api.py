@@ -184,7 +184,12 @@ async def test_repos_lists_the_owner_s_repos(client, db, github_http, monkeypatc
     await connect(db)
     github_http.routes["/user/repos"] = FakeResponse(
         [
-            {"full_name": "example-owner/blog", "default_branch": "trunk", "private": True},
+            {
+                "full_name": "example-owner/blog",
+                "default_branch": "trunk",
+                "private": True,
+                "pushed_at": "2026-08-01T12:00:00Z",
+            },
             {"full_name": "someone-else/thing", "default_branch": "main"},
         ]
     )
@@ -192,7 +197,12 @@ async def test_repos_lists_the_owner_s_repos(client, db, github_http, monkeypatc
     body = (await client.get("/api/github/repos")).json()
 
     assert body["repos"] == [
-        {"full_name": "example-owner/blog", "default_branch": "trunk", "private": True}
+        {
+            "full_name": "example-owner/blog",
+            "default_branch": "trunk",
+            "private": True,
+            "pushed_at": "2026-08-01T12:00:00Z",
+        }
     ]
 
 

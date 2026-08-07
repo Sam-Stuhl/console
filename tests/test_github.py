@@ -114,7 +114,12 @@ async def test_a_fully_configured_app_resolves(db, monkeypatch):
 
 
 def _repo(full_name, default_branch="main", private=False):
-    return {"full_name": full_name, "default_branch": default_branch, "private": private}
+    return {
+        "full_name": full_name,
+        "default_branch": default_branch,
+        "private": private,
+        "pushed_at": "2026-08-01T12:00:00Z",
+    }
 
 
 async def test_list_repos_keeps_only_the_configured_owner(http, monkeypatch):
@@ -135,6 +140,7 @@ async def test_list_repos_keeps_only_the_configured_owner(http, monkeypatch):
         "full_name": "Example-Owner/blog",
         "default_branch": "trunk",
         "private": True,
+        "pushed_at": "2026-08-01T12:00:00Z",
     }
 
 

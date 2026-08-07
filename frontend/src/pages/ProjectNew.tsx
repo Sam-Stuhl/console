@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
+import Combobox from '../components/Combobox'
+import { since } from '../lib/format'
 import {
   createProject,
   fetchDomains,
@@ -50,16 +52,21 @@ export default function ProjectNew() {
 
   // Branches of whichever repo is chosen. Only asked for once there is a repo
   // to ask about, and a repo typed by hand is not one we can list.
-  const { data: branchData } = useQuery({
+  const { data: branchData, isFetching: branchesLoading } = useQuery({
     queryKey: ['github-branches', form.repo],
     queryFn: () => fetchGitHubBranches(form.repo),
     enabled: picking && form.repo !== '',
     retry: false,
   })
   const branches = branchData?.branches ?? []
+  const defaultBranch = repos.find((r) => r.full_name === form.repo)?.default_branch
   // Also gated on `picking`: once the repo is being typed by hand, a cached
   // branch list belongs to a repo that is no longer the one being registered.
-  const pickingBranch = picking && branches.length > 0 && !typingBranch
+  // Loading counts as picking, so the field does not flash a text input and
+  // then swap under the cursor; the picker shows its skeleton instead. A repo
+  // whose branches fail to load still falls back to typing.
+  const pickingBranch =
+    picking && form.repo !== '' && (branches.length > 0 || branchesLoading) && !typingBranch
 
   const create = useMutation({
     mutationFn: () => createProject({ ...form, domain: domain || undefined }),
@@ -113,35 +120,32 @@ export default function ProjectNew() {
           required
         />
         {picking ? (
-          <label className="flex flex-col gap-1">
-            <span className="font-mono text-xs text-muted">repo</span>
-            <select
-              value={form.repo}
-              onChange={(e) => pickRepo(e.target.value)}
-              required
-              className="select select-sm w-full border-base-300 bg-base-100 font-mono text-sm"
-            >
-              <option value="" disabled>
-                pick a repo
-              </option>
-              {repos.map((r) => (
-                <option key={r.full_name} value={r.full_name}>
-                  {r.full_name}
-                  {r.private ? ' (private)' : ''}
-                </option>
-              ))}
-            </select>
-            <span className="font-mono text-xs text-faint">
-              from your connected github account.{' '}
-              <button
-                type="button"
-                className="text-accent hover:underline"
-                onClick={() => setTypingRepo(true)}
-              >
-                enter one manually
-              </button>
-            </span>
-          </label>
+          <Combobox
+            label="repo"
+            value={form.repo}
+            items={repos.map((r) => ({
+              value: r.full_name,
+              label: r.full_name,
+              tag: r.private ? 'private' : undefined,
+              detail: r.pushed_at ? since(r.pushed_at) : undefined,
+            }))}
+            onSelect={pickRepo}
+            placeholder="search your repos"
+            required
+            hint={
+              <>
+                from your connected github account, most recently pushed first.{' '}
+                <button
+                  type="button"
+                  className="text-accent hover:underline"
+                  onClick={() => setTypingRepo(true)}
+                >
+                  enter one manually
+                </button>
+              </>
+            }
+            emptyText="no repo matches that"
+          />
         ) : (
           <Field
             label="repo"
@@ -153,33 +157,35 @@ export default function ProjectNew() {
           />
         )}
         {pickingBranch ? (
-          <label className="flex flex-col gap-1">
-            <span className="font-mono text-xs text-muted">branch</span>
-            <select
-              value={form.branch}
-              onChange={(e) => setForm({ ...form, branch: e.target.value })}
-              required
-              className="select select-sm w-full border-base-300 bg-base-100 font-mono text-sm"
-            >
-              {/* The repo's default is preselected, but it stays listed among
-                  the rest: a project can track any branch it likes. */}
-              {branches.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
-            <span className="font-mono text-xs text-faint">
-              deploys trigger on pushes to this branch.{' '}
-              <button
-                type="button"
-                className="text-accent hover:underline"
-                onClick={() => setTypingBranch(true)}
-              >
-                type one instead
-              </button>
-            </span>
-          </label>
+          <Combobox
+            label="branch"
+            value={form.branch}
+            items={branches.map((b) => ({
+              value: b,
+              label: b,
+              // The repo's default is preselected but stays in the list: a
+              // project can track any branch it likes, and saying which one is
+              // the default is what makes an unfamiliar name safe to pick.
+              tag: b === defaultBranch ? 'default' : undefined,
+            }))}
+            onSelect={(branch) => setForm((f) => ({ ...f, branch }))}
+            placeholder="search branches"
+            loading={branchesLoading}
+            required
+            hint={
+              <>
+                deploys trigger on pushes to this branch.{' '}
+                <button
+                  type="button"
+                  className="text-accent hover:underline"
+                  onClick={() => setTypingBranch(true)}
+                >
+                  type one instead
+                </button>
+              </>
+            }
+            emptyText="no branch matches that"
+          />
         ) : (
           <Field
             label="branch"
