@@ -54,13 +54,27 @@ async def test_status_without_a_client_id_says_so(client, monkeypatch):
     assert (await client.get("/api/github/status")).json()["client_configured"] is False
 
 
+async def test_a_client_id_saved_in_settings_is_enough(client, db, monkeypatch):
+    # The whole point: set it up in the browser, no file on the box to edit and
+    # no restart.
+    monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "")
+
+    assert (
+        await client.put(
+            "/api/settings/github_client_id", json={"value": "Iv1.saved"}
+        )
+    ).status_code == 204
+
+    assert (await client.get("/api/github/status")).json()["client_configured"] is True
+
+
 async def test_device_start_needs_a_client_id(client, monkeypatch):
     monkeypatch.setattr(config, "GITHUB_CLIENT_ID", "")
 
     response = await client.post("/api/github/device")
 
     assert response.status_code == 503
-    assert "CONSOLE_GITHUB_CLIENT_ID" in response.json()["detail"]
+    assert "Settings" in response.json()["detail"]
 
 
 async def test_device_start_hands_the_code_to_the_browser(client, github_http):

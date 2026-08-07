@@ -59,8 +59,8 @@ class FileNotFound(Exception):
 class DeviceFlowUnavailable(Exception):
     def __init__(self) -> None:
         super().__init__(
-            "No GitHub OAuth client id is configured. Register an OAuth app "
-            "with device flow enabled and set CONSOLE_GITHUB_CLIENT_ID."
+            "No GitHub OAuth client id is set. Register an OAuth app with "
+            "device flow enabled and save its client id in Settings."
         )
 
 
@@ -69,6 +69,24 @@ async def resolve_token(session: AsyncSession) -> str:
     if not token:
         raise GitHubNotConnected()
     return token
+
+
+async def client_id(session: AsyncSession) -> str:
+    """The OAuth app to run the device flow against: the one saved in Settings,
+    falling back to CONSOLE_GITHUB_CLIENT_ID. Settings first for the same reason
+    the Cloudflare credentials work that way, so an operator can set this up in
+    the browser without editing a file on the box and restarting.
+
+    Returns "" when neither is set, which means the feature is simply off."""
+    stored = await settings_store.get(session, settings_store.GITHUB_CLIENT_ID)
+    return stored or config.GITHUB_CLIENT_ID
+
+
+async def require_client_id(session: AsyncSession) -> str:
+    resolved = await client_id(session)
+    if not resolved:
+        raise DeviceFlowUnavailable()
+    return resolved
 
 
 # --- device flow -----------------------------------------------------------
@@ -81,14 +99,12 @@ DENIED = "denied"
 EXPIRED = "expired"
 
 
-async def start_device_flow() -> dict:
+async def start_device_flow(client_id: str) -> dict:
     """Ask GitHub for a device code. Returns the user-facing code, where to
     enter it, how often we may poll, and the device code to poll with."""
-    if not config.GITHUB_CLIENT_ID:
-        raise DeviceFlowUnavailable()
     data = await _post_form(
         config.GITHUB_DEVICE_CODE_URL,
-        {"client_id": config.GITHUB_CLIENT_ID, "scope": config.GITHUB_SCOPE},
+        {"client_id": client_id, "scope": config.GITHUB_SCOPE},
     )
     if "device_code" not in data:
         raise GitHubApiError(f"GitHub declined the device request: {_error(data)}")
@@ -102,14 +118,12 @@ async def start_device_flow() -> dict:
     }
 
 
-async def poll_device_flow(device_code: str) -> tuple[str, str | None]:
+async def poll_device_flow(client_id: str, device_code: str) -> tuple[str, str | None]:
     """One poll. Returns (state, token); token is set only when CONNECTED."""
-    if not config.GITHUB_CLIENT_ID:
-        raise DeviceFlowUnavailable()
     data = await _post_form(
         config.GITHUB_TOKEN_URL,
         {
-            "client_id": config.GITHUB_CLIENT_ID,
+            "client_id": client_id,
             "device_code": device_code,
             "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
         },

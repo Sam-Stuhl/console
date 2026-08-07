@@ -220,10 +220,12 @@ console, which is still Cloudflare Access's job alone.
    Name it anything; the device flow does not use the homepage or callback
    URLs, so your console's own URL is a fine answer for both.
 2. On the app's page, tick **Enable Device Flow** and save.
-3. Copy the **Client ID** and set `CONSOLE_GITHUB_CLIENT_ID` in the console's
-   environment (`.env` next to `compose.prod.yaml`), then restart the console.
-4. Console -> **Settings -> github connection** -> **connect github**. Enter the
-   code it shows on github.com; the page picks up the connection itself.
+3. Copy the **Client ID** into Console -> **Settings -> github connection**.
+   Nothing to edit on the server, and no restart. (`CONSOLE_GITHUB_CLIENT_ID`
+   in `.env` still works if you would rather keep it in the compose file; the
+   saved one wins, the same as the Cloudflare account id.)
+4. Same section -> **connect github**. Enter the code it shows on github.com;
+   the page picks up the connection itself.
 
 There is deliberately no default client id: this is a public project, and a
 shipped one would make its author the OAuth trust anchor for every install.
