@@ -25,8 +25,10 @@ RUN pip install --no-cache-dir .
 # The built SPA, at the path main.py expects: <root>/frontend/dist
 COPY --from=frontend /build/dist ./frontend/dist
 
+# No CONSOLE_DOMAIN or CONSOLE_OIDC_OWNER default: those are per-deployment and
+# compose.prod.yaml requires both. An image that shipped one operator's domain
+# would hand it to every install that forgot to set its own.
 ENV CONSOLE_DB_PATH=/data/console.db \
-    CONSOLE_DOMAIN=samstuhl.com \
     CONSOLE_OIDC_AUDIENCE=console \
     CONSOLE_KEY_FILE=/run/secrets/console_key
 EXPOSE 8000
