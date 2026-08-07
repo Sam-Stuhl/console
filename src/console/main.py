@@ -33,8 +33,11 @@ from console.backup.engine import backup_loop
 from console.deploy.reaper import reaper_loop
 from console.monitor import monitor_loop
 from console.secrets.crypto import KeyNotConfigured
-from console.v1 import rest as v1_rest
+from console.v1 import mcp as v1_mcp, rest as v1_rest
 from console.v1.rest import router as v1_router
+
+# Built at import time so the lifespan below can run the session manager.
+_mcp_sessions = v1_mcp.build_transport()
 
 ROOT = Path(__file__).resolve().parents[2]
 DIST = ROOT / "frontend" / "dist"
@@ -75,7 +78,10 @@ async def lifespan(_app: FastAPI):
     reaper = asyncio.create_task(reaper_loop())
     backups = asyncio.create_task(backup_loop())
     monitor = asyncio.create_task(monitor_loop())
-    yield
+    # The MCP transport keeps per-client sessions, which need a running manager;
+    # without this every /mcp request fails.
+    async with _mcp_sessions.run():
+        yield
     for task in (reaper, backups, monitor):
         task.cancel()
         with suppress(asyncio.CancelledError):
@@ -100,6 +106,9 @@ app.include_router(tokens_router)
 app.include_router(validate_router)
 app.include_router(v1_router)
 v1_rest.install_error_handler(app)
+# Middleware rather than a mount: it has to answer the bare /mcp, which
+# Starlette's Mount does not match, and it must run before the SPA catch-all.
+app.add_middleware(v1_mcp.McpGate)
 
 
 # The version-scoped spec and its docs page are deliberately NOT token-gated:
