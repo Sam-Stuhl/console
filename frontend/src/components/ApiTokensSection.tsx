@@ -184,15 +184,10 @@ function NewToken({
 }
 
 function ConnectAnAgent({ origin }: { origin: string }) {
-  const mcpConfig = `{
-  "mcpServers": {
-    "console": {
-      "type": "http",
-      "url": "${origin}/mcp",
-      "headers": { "Authorization": "Bearer csk_your_token" }
-    }
-  }
-}`
+  // The CLI command rather than a .mcp.json block: --scope user registers the
+  // server for every project at once, and keeps the token in the user's own
+  // config instead of a file that is designed to be committed.
+  const addCommand = `claude mcp add --transport http --scope user console \\\n  ${origin}/mcp --header "Authorization: Bearer csk_your_token"`
 
   return (
     <details className="rounded-box border border-base-300 px-3 py-2">
@@ -201,12 +196,17 @@ function ConnectAnAgent({ origin }: { origin: string }) {
       </summary>
       <div className="mt-3 flex flex-col gap-3">
         <div className="flex flex-col gap-1">
-          <p className="font-mono text-xs text-faint">
-            Claude Code, in <code className="text-base-content">.mcp.json</code>:
-          </p>
+          <p className="font-mono text-xs text-faint">Claude Code:</p>
           <pre className="overflow-x-auto rounded-sm bg-base-100 px-2 py-1.5 font-mono text-xs text-base-content">
-            {mcpConfig}
+            {addCommand}
           </pre>
+          <p className="font-mono text-[11px] leading-relaxed text-faint">
+            <code className="text-base-content">--scope user</code> makes the
+            console available in every project on this machine, and keeps the
+            token out of any repo. Drop it to add the server to just the current
+            project. Check it with{' '}
+            <code className="text-base-content">claude mcp list</code>.
+          </p>
         </div>
         <div className="flex flex-col gap-1">
           <p className="font-mono text-xs text-faint">From a shell:</p>
@@ -219,8 +219,8 @@ function ConnectAnAgent({ origin }: { origin: string }) {
           <a className="link" href="/v1/docs" target="_blank" rel="noreferrer">
             /v1/docs
           </a>
-          . Both paths need a Cloudflare Access <em>Bypass</em> rule to be
-          reachable from outside; see docs/api.md.
+          . Reaching either path from outside needs whatever gate fronts this
+          console to let it through; see docs/api.md.
         </p>
       </div>
     </details>
