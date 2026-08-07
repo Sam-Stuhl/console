@@ -50,6 +50,7 @@ export interface Project {
   icon_fetched_at: string | null // cache-buster for the icon URL
   deploy_status: string | null // latest deployment status (queued/building/deploying/live/failed/…)
   is_live: boolean // a deployment is currently serving, independent of the monitor ping
+  image_hint: string // what CI tags this project's images as, minus the tag
 }
 
 // The app's fetched favicon, served from the console. Includes the fetch time
@@ -120,6 +121,19 @@ export interface CommandRunDetail extends CommandRunSummary {
   output: string | null
 }
 
+/* Carries the status alongside the message, so a caller can tell apart
+   failures that read the same to a user but need different handling (a 503 for
+   an unconfigured dependency versus a 400 for bad input). */
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
   if (!res.ok) {
@@ -130,7 +144,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     } catch {
       // non-JSON error body; keep the status text
     }
-    throw new Error(detail)
+    throw new ApiError(res.status, detail)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -346,6 +360,61 @@ export const redeployDeployment = (projectId: string, deploymentId: string) =>
   request<{ deployment_id: string; status: string }>(
     `/api/projects/${projectId}/deployments/${deploymentId}/redeploy`,
     jsonInit('POST'),
+  )
+
+// Deploy an image that is already in GHCR, with no build webhook involved.
+// console.toml is read from the repo at `ref` unless one is pasted, which is
+// the fallback for when GitHub cannot be reached.
+export const deployImage = (
+  projectId: string,
+  body: { image: string; ref?: string; console_toml?: string },
+) =>
+  request<{ deployment_id: string; status: string }>(
+    `/api/projects/${projectId}/deployments`,
+    jsonInit('POST', body),
+  )
+
+export interface GitHubStatus {
+  client_configured: boolean // an OAuth client id is set, so connecting is possible
+  connected: boolean // a token is stored
+  login: string | null // the connected account, null if the token no longer works
+  error: string | null
+}
+
+export interface GitHubRepo {
+  full_name: string
+  default_branch: string
+  private: boolean
+}
+
+export interface DeviceFlow {
+  device_code: string
+  user_code: string
+  verification_uri: string
+  interval: number // seconds GitHub allows between polls
+  expires_in: number
+}
+
+export const fetchGitHubStatus = () => getJson<GitHubStatus>('/api/github/status')
+
+export const startGitHubDeviceFlow = () =>
+  request<DeviceFlow>('/api/github/device', jsonInit('POST'))
+
+export const pollGitHubDeviceFlow = (deviceCode: string) =>
+  request<{ status: 'pending' | 'connected' | 'denied' | 'expired' }>(
+    '/api/github/device/poll',
+    jsonInit('POST', { device_code: deviceCode }),
+  )
+
+export const disconnectGitHub = () =>
+  request<void>('/api/github/connection', jsonInit('DELETE'))
+
+export const fetchGitHubRepos = () =>
+  getJson<{ repos: GitHubRepo[] }>('/api/github/repos')
+
+export const fetchGitHubBranches = (repo: string) =>
+  getJson<{ branches: string[] }>(
+    `/api/github/branches?repo=${encodeURIComponent(repo)}`,
   )
 
 export interface ProjectContainer {

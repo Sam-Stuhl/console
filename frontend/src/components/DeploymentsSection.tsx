@@ -5,6 +5,7 @@ import type { DeploymentSummary } from '../api/client'
 import { fetchDeployments, redeployDeployment, rollbackDeployment } from '../api/client'
 import { since, took } from '../lib/format'
 import DeployBadge from './DeployBadge'
+import DeployImageForm from './DeployImageForm'
 
 export function canRollback(d: DeploymentSummary): boolean {
   // Only builds that actually served traffic; rows superseded straight
@@ -28,9 +29,11 @@ export function deployTook(d: DeploymentSummary): string {
 export default function DeploymentsSection({
   projectId,
   branch,
+  imageHint,
 }: {
   projectId: string
   branch: string
+  imageHint: string
 }) {
   const queryClient = useQueryClient()
   const { data: deployments, isError, error } = useQuery({
@@ -68,14 +71,23 @@ export default function DeploymentsSection({
   }
   if (deployments.length === 0) {
     return (
-      <p className="font-mono text-xs text-faint">
-        no deployments yet. push to {branch} and the build webhook will start one.
-      </p>
+      <div className="flex flex-col gap-3">
+        <p className="font-mono text-xs text-faint">
+          no deployments yet. push to {branch} and the build webhook will start
+          one, or deploy an image that is already built.
+        </p>
+        <DeployImageForm
+          projectId={projectId}
+          imageHint={imageHint}
+          branch={branch}
+        />
+      </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-3">
+      <DeployImageForm projectId={projectId} imageHint={imageHint} branch={branch} />
       <table className="w-full font-mono text-xs">
         <tbody>
           {deployments.map((d, i) => (

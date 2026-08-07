@@ -45,12 +45,13 @@ def enqueue(deployment_id: str) -> None:
 
 
 async def queue(session: AsyncSession, deployment: Deployment) -> None:
-    """Hand a newly-added deployment row to the engine.
+    """Make this row the project's one queued deployment and start it.
 
-    Every way to start a deploy ends here: a build webhook, a rollback, a
-    redeploy, and the same three driven over /v1. The caller has added the row
-    and set its fields; this flushes so it has an id, supersedes any older
-    queued row, commits, and spawns the deploy task."""
+    Every way into the pipeline ends here: the build webhook, rollback,
+    redeploy, and deploying an image by hand. They differ in where the image
+    and config came from, never in how a deploy is started."""
+    # Flush first: a row created in this request needs its id assigned before
+    # the sweep below can exclude it.
     await session.flush()
     await supersede_older_queued(session, deployment.project_id, deployment.id)
     await session.commit()

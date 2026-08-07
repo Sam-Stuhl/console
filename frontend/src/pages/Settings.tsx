@@ -2,19 +2,25 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   deleteSetting,
+  disconnectGitHub,
   fetchBackups,
   fetchCredentials,
   fetchDeployments,
   fetchDomainsConfig,
+  fetchGitHubStatus,
   fetchProjects,
   fetchSettings,
+  pollGitHubDeviceFlow,
   putDomains,
   putSetting,
   runBackupNow,
   sendTestAlert,
   setCredentialExpiry,
+  startGitHubDeviceFlow,
   type CredentialStatus,
+  type DeviceFlow,
 } from '../api/client'
+import { copyText } from '../lib/clipboard'
 import { formatBytes, since } from '../lib/format'
 import ApiTokensSection from '../components/ApiTokensSection'
 import {
@@ -69,6 +75,10 @@ export default function Settings() {
               only as configured / not set, and never written to git.
             </p>
           </div>
+
+          <CollapsibleSection id="github" title="github connection">
+            <GitHubConnection />
+          </CollapsibleSection>
 
           <CollapsibleSection id="ghcr" title="github packages token">
         <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
@@ -750,6 +760,213 @@ function Dot({ on, label }: { on: boolean; label: string }) {
       <span className={`h-1.5 w-1.5 rounded-full ${on ? 'bg-success' : 'bg-base-300'}`} />
       <span className="text-faint">{label}</span>
     </span>
+  )
+}
+
+/* Connect a GitHub account through the OAuth device flow: the console shows a
+   code, you approve it on github.com, and it polls until the token arrives.
+   The token is outbound only. It lets the console read your repo list and a
+   repo's console.toml; it grants nobody access to this console, which is still
+   Cloudflare Access's job alone. */
+function GitHubConnection() {
+  const queryClient = useQueryClient()
+  const { data: status } = useQuery({
+    queryKey: ['github-status'],
+    queryFn: fetchGitHubStatus,
+  })
+  const [flow, setFlow] = useState<DeviceFlow | null>(null)
+  const [outcome, setOutcome] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
+
+  const start = useMutation({
+    mutationFn: startGitHubDeviceFlow,
+    onSuccess: (started) => {
+      setOutcome(null)
+      setFlow(started)
+    },
+    onError: (err: Error) => setOutcome(err.message),
+  })
+
+  const disconnect = useMutation({
+    mutationFn: disconnectGitHub,
+    onSuccess: () => {
+      setConfirmDisconnect(false)
+      queryClient.invalidateQueries({ queryKey: ['github-status'] })
+      queryClient.invalidateQueries({ queryKey: ['github-repos'] })
+    },
+  })
+
+  // Poll at the interval GitHub advertised, no faster: polling too often is
+  // what earns a slow_down.
+  useEffect(() => {
+    if (!flow) return
+    let cancelled = false
+    const timer = window.setInterval(async () => {
+      try {
+        const { status: state } = await pollGitHubDeviceFlow(flow.device_code)
+        if (cancelled || state === 'pending') return
+        setFlow(null)
+        if (state === 'connected') {
+          queryClient.invalidateQueries({ queryKey: ['github-status'] })
+          queryClient.invalidateQueries({ queryKey: ['github-repos'] })
+        } else {
+          setOutcome(
+            state === 'denied'
+              ? 'that request was denied on github.'
+              : 'that code expired before it was approved.',
+          )
+        }
+      } catch (err) {
+        if (cancelled) return
+        setFlow(null)
+        setOutcome((err as Error).message)
+      }
+    }, flow.interval * 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [flow, queryClient])
+
+  return (
+    <>
+      <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
+        Lets you pick a repo when registering a project instead of typing one,
+        and lets the console read a repo&apos;s <Code>console.toml</Code> when
+        you deploy an image yourself. This is a credential the console uses to
+        call GitHub; it gives nobody access to the console.
+      </p>
+
+      {status && !status.client_configured && (
+        <>
+          <Callout>
+            No OAuth client id is set, so there is nothing to connect to yet.
+          </Callout>
+          <Steps
+            title="one-time setup"
+            items={[
+              <>
+                Open{' '}
+                <UI>
+                  GitHub &rarr; Settings &rarr; Developer settings &rarr; OAuth
+                  Apps
+                </UI>{' '}
+                and click <UI>New OAuth App</UI>.
+              </>,
+              <>
+                Name it something like <Code>my console</Code>. The homepage and
+                callback URLs are not used by the device flow; your console&apos;s
+                own URL is a fine answer for both.
+              </>,
+              <>
+                On the app&apos;s page, tick <UI>Enable Device Flow</UI> and save.
+              </>,
+              <>
+                Copy the <UI>Client ID</UI> and set{' '}
+                <Code>CONSOLE_GITHUB_CLIENT_ID</Code> in the console&apos;s
+                environment, then restart it.
+              </>,
+            ]}
+            link={{
+              href: 'https://github.com/settings/developers',
+              label: 'open the oauth apps page',
+            }}
+          />
+        </>
+      )}
+
+      {status?.connected && status.error && (
+        <Callout>
+          {status.error} The connection below no longer works.
+        </Callout>
+      )}
+
+      {status?.connected ? (
+        <div className="flex flex-wrap items-center gap-3 font-mono text-xs">
+          <span className="text-muted">connected as</span>
+          <span className="text-base-content">{status.login ?? 'unknown'}</span>
+          {confirmDisconnect ? (
+            <span className="inline-flex items-center gap-3">
+              <button
+                type="button"
+                className="text-warning hover:underline"
+                onClick={() => disconnect.mutate()}
+              >
+                confirm
+              </button>
+              <button
+                type="button"
+                className="text-muted transition-colors duration-150 hover:text-base-content hover:underline"
+                onClick={() => setConfirmDisconnect(false)}
+              >
+                keep
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="text-muted transition-colors duration-150 hover:text-base-content hover:underline"
+              onClick={() => setConfirmDisconnect(true)}
+            >
+              disconnect
+            </button>
+          )}
+          <span className="text-faint">
+            disconnecting forgets the token here; revoke it on github to end the
+            authorization itself
+          </span>
+        </div>
+      ) : flow ? (
+        <div className="flex flex-col gap-2 font-mono text-xs">
+          <p className="text-muted">
+            enter this code on github, then come back. this page is waiting.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="rounded-sm bg-base-100 px-2 py-1 text-base tracking-[0.3em] text-base-content">
+              {flow.user_code}
+            </span>
+            <button
+              type="button"
+              className="text-muted transition-colors duration-150 hover:text-base-content hover:underline"
+              onClick={async () => {
+                await copyText(flow.user_code)
+                setCopied(true)
+                window.setTimeout(() => setCopied(false), 2000)
+              }}
+            >
+              {copied ? 'copied' : 'copy'}
+            </button>
+            <a
+              href={flow.verification_uri}
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent hover:underline"
+            >
+              open github &#8599;
+            </a>
+            <button
+              type="button"
+              className="text-muted transition-colors duration-150 hover:text-base-content hover:underline"
+              onClick={() => setFlow(null)}
+            >
+              cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={!status?.client_configured || start.isPending}
+          className="btn btn-primary btn-sm self-start font-mono"
+          onClick={() => start.mutate()}
+        >
+          {start.isPending ? 'starting…' : 'connect github'}
+        </button>
+      )}
+
+      {outcome && <p className="font-mono text-xs text-error">{outcome}</p>}
+    </>
   )
 }
 

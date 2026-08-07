@@ -44,6 +44,9 @@ class ProjectOut(BaseModel):
     icon_fetched_at: datetime | None  # doubles as a cache-buster for the icon URL
     deploy_status: str | None  # latest deployment's status (queued/building/deploying/live/failed/…)
     is_live: bool  # a deployment is currently live (serving), independent of the monitor ping
+    # What CI tags this project's images as, minus the tag: the prefill for the
+    # deploy-an-image form, so only a tag has to be typed. Derived, never stored.
+    image_hint: str
 
 
 class AccessUpdate(BaseModel):
@@ -87,6 +90,8 @@ def _out(
         icon_fetched_at=project.icon_fetched_at,
         deploy_status=deploy_status,
         is_live=is_live,
+        # GHCR paths are lowercase, which is what the build workflow pushes to.
+        image_hint=f"ghcr.io/{project.repo.lower()}:",
     )
 
 
