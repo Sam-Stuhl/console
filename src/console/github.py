@@ -188,6 +188,9 @@ class GitHub:
                 "full_name": repo["full_name"],
                 "default_branch": repo.get("default_branch") or "main",
                 "private": bool(repo.get("private")),
+                # The list comes back most-recently-pushed first; showing when
+                # is what makes that order legible rather than arbitrary.
+                "pushed_at": repo.get("pushed_at"),
             }
             for repo in repos
             if not owner or repo["full_name"].split("/", 1)[0].lower() == owner

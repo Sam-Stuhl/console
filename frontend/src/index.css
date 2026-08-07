@@ -62,3 +62,28 @@
 @utility text-faint {
   color: oklch(0.48 0.006 36);
 }
+
+/* The combobox list, on open. Short and eased out hard: it is a menu, not a
+   reveal, and anything longer gets waited on. */
+@keyframes combobox-open {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Same end state, no travel. */
+  @keyframes combobox-open {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}

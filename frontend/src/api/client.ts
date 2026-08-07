@@ -361,6 +361,7 @@ export interface GitHubRepo {
   full_name: string
   default_branch: string
   private: boolean
+  pushed_at: string | null // the list is ordered by this, newest first
 }
 
 export const fetchGitHubStatus = () => getJson<GitHubStatus>('/api/github/status')
