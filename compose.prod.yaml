@@ -24,6 +24,19 @@ services:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
+      # Keep cloudflared's X-Forwarded-Proto instead of overwriting it with the
+      # scheme of the hop into Traefik, which is always plain http. Without
+      # this every app behind here believes its requests arrived over http:
+      # absolute URLs it builds come out http:// on an https site (this is what
+      # made GitHub refuse the console's OAuth redirect), and cookies marked
+      # secure-if-https never are.
+      #
+      # "insecure" means Traefik trusts these headers from whoever connects to
+      # it. Here that is only cloudflared and our own app containers, because
+      # Traefik publishes no ports to the host and the tunnel is the only way
+      # in. The alternative, trustedIPs, would pin a docker-assigned address
+      # that changes.
+      - --entrypoints.web.forwardedHeaders.insecure=true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [web]

@@ -356,6 +356,18 @@ docker compose -f compose.prod.yaml pull console
 docker compose -f compose.prod.yaml up -d console
 ```
 
+**The deploy job only recreates the console.** A change to Traefik's or
+cloudflared's section of `compose.prod.yaml` reaches the box on the next
+`git pull` but does nothing until you recreate that service yourself, on the
+box:
+
+```
+docker compose -f compose.prod.yaml up -d traefik
+```
+
+Traefik restarts in a second or two, and every site is briefly unreachable
+while it does, so it is worth doing deliberately rather than by surprise.
+
 To roll back, pin an older image instead of `latest`. CI tags every build with
 the short sha of its commit to `main`, so pick one from the **Actions** tab or
 the package's version list. In PowerShell:
