@@ -338,6 +338,115 @@ credential expiry**: set the expiry date for the GHCR, Cloudflare, and backup
 tokens. About two weeks out the console warns through your ntfy topic, so an
 expired token never silently breaks a deploy.
 
+## 11. Housekeeping: disk, image retention, and logs (do this on day one)
+
+Every deploy pulls a new image. The console keeps the last
+`CONSOLE_IMAGE_RETENTION` of them per project (default 3: the live one plus two
+rollback targets) and removes the rest once the deploy is live, so the ordinary
+case needs nothing from you. What it deliberately will not touch is any image it
+did not deploy, which is where the rest of this section comes in: Traefik,
+cloudflared, images from a project you have since deleted, and anything else you
+pull by hand are yours to manage.
+
+When it fills, the failure is total and silent. `dockerd` cannot create its temp
+directory, refuses to start, and **every container on the box stops**:
+
+```
+failed to start daemon: Unable to get the TempDir under /var/lib/docker:
+mkdir /var/lib/docker/tmp: no space left on device
+```
+
+Worse, it looks fine from outside. Cloudflare answers at the edge whether or not
+an origin is there, so gated hostnames still return their Access redirect and
+only an actual page load shows the failure. And the console cannot tell you,
+because the uptime monitor runs *inside* the console, which is one of the
+containers that just stopped. Recovery needs a shell on the box, which is one
+reason `remote-access.md` is part of the design rather than a convenience.
+
+Four things keep it from happening.
+
+**Size the Docker disk for your deploy rate.** If Docker runs in a VM (colima,
+Docker Desktop, Rancher Desktop) that VM has its own fixed virtual disk, set
+when it was created and typically much smaller than the host disk. The host
+having hundreds of free gigabytes is no protection at all. Check the real
+number:
+
+```
+docker info --format "{{.DockerRootDir}}"   # where images actually live
+colima ssh -- df -h /var/lib/docker         # colima: the VM's disk, not the host's
+```
+
+Budget roughly (number of apps) x (deploys per week) x (image size) per week and
+give yourself a few months of headroom. One app under active development is
+easily 20 deploys a week; at 350MB an image that is 7GB a week before layer
+sharing. To grow a colima VM (it can grow but never shrink, and it needs a
+restart, so every container stops for a minute):
+
+```
+colima stop
+colima start --disk 100
+```
+
+**Rotate container logs.** The default `json-file` driver has no size cap, so a
+chatty container writes until the disk is gone. Set a cap for every container in
+the daemon config, then restart Docker:
+
+```json
+{ "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }
+```
+
+On a plain Docker host that is `/etc/docker/daemon.json`. Under colima, put the
+same object in the `docker:` key of `~/.colima/default/colima.yaml` (it ships as
+`docker: {}`) and `colima restart`, which survives VM restarts.
+
+**Prune on a schedule, as the backstop.** `ops/docker-prune.sh` in this repo
+sweeps up what the console's own retention cannot see. The `until` filter keeps
+the last two weeks, and images referenced by a container (running **or**
+stopped) are never candidates, so it only removes superseded builds. Rollback is
+unaffected either way: the engine pulls before it runs, so a pruned image is
+re-fetched from GHCR, which is the real source of truth for old images.
+
+To keep every image instead, set `CONSOLE_IMAGE_RETENTION=0` and rely on this
+script alone. That was the console's behaviour before 2026-08-26, and it is what
+filled the disk.
+
+**Alert before it is full, and when it is already too late.**
+`ops/disk-watch.sh` warns once a day past 80% and sends an urgent alert if Docker
+is not responding at all, reusing the ntfy topic from step 10. It has to run on
+the host rather than in the console for the reason above.
+
+Install both scripts and schedule them:
+
+```
+mkdir -p ~/ops ~/.config/console-ops
+cp ops/docker-prune.sh ops/disk-watch.sh ~/ops/ && chmod +x ~/ops/*.sh
+printf '%s' '<your-ntfy-topic>' > ~/.config/console-ops/ntfy-topic
+chmod 600 ~/.config/console-ops/ntfy-topic
+crontab -e
+```
+
+```cron
+0 * * * * /Users/<you>/ops/disk-watch.sh
+30 4 * * 0 /Users/<you>/ops/docker-prune.sh
+```
+
+Without the topic file `disk-watch.sh` still logs to `~/ops/disk-watch.log` but
+sends nothing, so create it or the alerting half is inert.
+
+**Use cron, not a launchd agent**, on a headless macOS box. A `LaunchAgent` loads
+at *login*, so on a server with auto-login off it never runs at all, and on one
+with auto-login on it dies when you switch users. (`remote-access.md` records the
+outage that taught this.) A system `LaunchDaemon` in `/Library/LaunchDaemons`
+also works and starts at boot, but it needs root; a user crontab does not, and
+cron itself is a system daemon that runs your jobs whether or not anyone is
+logged in. Verify it actually fires before trusting it: add a
+`* * * * * /bin/date >> ~/ops/cron-alive.log` line, wait two minutes, check the
+file, then remove the line. On recent macOS, `cron` sometimes needs Full Disk
+Access granted in System Settings before it can run anything.
+
+Eighty percent of a 20GB disk is 4GB of headroom, roughly ten deploys. Raise the
+threshold only if you also raised the disk.
+
 ## Adding another domain
 
 Apps serve at `{subdomain}.{domain}`. The primary domain is `CONSOLE_DOMAIN`;
@@ -431,6 +540,11 @@ type on, so running it remotely would start the console on a blank database.
 - **Container terminal:** the per-app terminal is the one websocket in the app
   (everything else polls). Cloudflare tunnels proxy websockets by default, and it
   sits behind the same Access login as the console UI, so no extra setup.
+- **A full Docker disk stops everything:** `dockerd` will not start without room
+  for its temp directory, so one filled disk takes down every container at once,
+  including the console you would diagnose it from. Step 11 is the prevention;
+  `docker system df` and `colima ssh -- df -h /var/lib/docker` are the two
+  commands that show it coming.
 - **Liveness checks:** the uptime monitor pings each app container-to-container
   on the `web` network, so it only works with the console running in-container
   (as here); from a host-run dev server every app reads down.
