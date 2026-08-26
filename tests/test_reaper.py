@@ -1,8 +1,14 @@
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
-from console.db.models import Deployment, Project
+from console import config
+from console.db.models import Deployment, Project, naive_utc
+from console.deploy import reaper
 from console.deploy.reaper import reap_once
 from console.schema.console_toml import parse_console_toml
 
@@ -135,3 +141,77 @@ async def test_aware_now_is_normalized(db):
     assert await run_reaper(db, now=aware_now) == 1
     async with db() as session:
         assert (await session.get(Deployment, deployment_id)).status == "failed"
+
+
+
+async def wait_until(predicate, timeout=2.0):
+    """Poll until predicate() is true, so a tick failure fails fast."""
+    for _ in range(int(timeout / 0.01)):
+        if await predicate():
+            return True
+        await asyncio.sleep(0.01)
+    return False
+
+
+@asynccontextmanager
+async def running_loop(db, monkeypatch):
+    """reaper_loop against the test database, ticking as fast as it can."""
+    monkeypatch.setattr(config, "REAPER_INTERVAL", 0.01)
+    monkeypatch.setattr(reaper, "SessionLocal", db)
+    task = asyncio.create_task(reaper.reaper_loop())
+    try:
+        yield task
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+async def test_loop_reaps_a_stuck_row_end_to_end(db, monkeypatch):
+    # The whole tick body, its clock included. reap_once on its own can never
+    # catch a broken reaper_loop, because these tests supply `now` themselves.
+    deployment_id = await seed(
+        db,
+        status="building",
+        created_at=naive_utc(datetime.now(timezone.utc)) - timedelta(minutes=31),
+    )
+
+    async with running_loop(db, monkeypatch) as task:
+
+        async def reaped():
+            if task.done():
+                await task  # re-raise whatever killed the tick
+            async with db() as session:
+                row = await session.get(Deployment, deployment_id)
+                return row.status == "failed"
+
+        assert await wait_until(reaped), "reaper_loop never reaped the stuck row"
+
+
+async def test_loop_retries_after_a_transient_database_error(db, monkeypatch):
+    calls = []
+
+    async def flaky(session, now):
+        calls.append(now)
+        if len(calls) == 1:
+            raise OperationalError("select 1", {}, Exception("database is locked"))
+        return 0
+
+    async def ticked_twice():
+        return len(calls) >= 2
+
+    monkeypatch.setattr(reaper, "reap_once", flaky)
+    async with running_loop(db, monkeypatch):
+        assert await wait_until(ticked_twice), "a transient error stopped the loop"
+    assert calls[0].tzinfo is timezone.utc
+
+
+async def test_loop_stops_on_a_programming_error(db, monkeypatch):
+    async def buggy(session, now):
+        raise AttributeError("'Deployment' object has no attribute 'nope'")
+
+    monkeypatch.setattr(reaper, "reap_once", buggy)
+    monkeypatch.setattr(config, "REAPER_INTERVAL", 0.01)
+    monkeypatch.setattr(reaper, "SessionLocal", db)
+    with pytest.raises(AttributeError):
+        await asyncio.wait_for(reaper.reaper_loop(), timeout=2)

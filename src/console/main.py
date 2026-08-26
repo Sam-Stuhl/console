@@ -85,7 +85,9 @@ async def lifespan(_app: FastAPI):
         yield
     for task in (reaper, backups, monitor):
         task.cancel()
-        with suppress(asyncio.CancelledError):
+        # A loop that already died on a bug logged its own reason; shutdown
+        # only needs the task settled, and the ones after it still cancelled.
+        with suppress(asyncio.CancelledError, Exception):
             await task
 
 

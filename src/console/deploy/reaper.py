@@ -7,7 +7,7 @@ every comparison here normalizes both sides through naive_utc first."""
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,5 +86,12 @@ async def reaper_loop() -> None:
                 count = await reap_once(session, datetime.now(timezone.utc))
             if count:
                 logger.warning("reaped %d stuck deployment(s)", count)
+        except (AttributeError, ImportError, NameError, TypeError):
+            # A bug in the tick body fails the same way every time, so retrying
+            # only hides a reaper that is no longer reaping. Die loudly instead.
+            logger.critical("reaper hit a bug and is stopping", exc_info=True)
+            raise
         except Exception:
+            # Anything else (a locked database, a dropped connection) is worth
+            # another tick.
             logger.exception("reaper tick failed; will retry")
