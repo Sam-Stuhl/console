@@ -1,6 +1,8 @@
 """Engine tests against a fake Docker client. The one that matters most:
 on a failed health check the old container is never stopped."""
 
+from datetime import datetime, timedelta
+
 import docker.errors
 import pytest
 
@@ -87,6 +89,13 @@ class FakeImages:
             raise docker.errors.APIError(self.fake.pull_error)
         self.fake.events.append(("pull", image, auth_config))
 
+    def remove(self, image):
+        if image in self.fake.images_in_use:
+            raise docker.errors.APIError(f"image is being used: {image}")
+        if image in self.fake.images_missing:
+            raise docker.errors.ImageNotFound(f"no such image: {image}")
+        self.fake.removed_images.append(image)
+
 
 class FakeDocker:
     def __init__(self):
@@ -94,6 +103,9 @@ class FakeDocker:
         self.events = []
         self.run_calls = []
         self.pull_error = None
+        self.removed_images = []
+        self.images_in_use = set()
+        self.images_missing = set()
         self.containers = FakeContainers(self)
         self.images = FakeImages(self)
 
@@ -350,3 +362,148 @@ async def test_pull_failure_marks_failed(sessions, fake_docker, healthy):
     assert row.status == "failed"
     assert "image pull failed" in row.failure_reason
     assert fake_docker.run_calls == []
+
+
+# Image retention. The console creates one image per deploy and used to remove
+# none, which filled the Docker disk until dockerd would not start and every
+# container on the box stopped.
+
+
+async def history(db, project_id, images):
+    """Older deployments for a project, oldest first, as if already deployed."""
+    async with db() as session:
+        for n, image in enumerate(images):
+            session.add(
+                Deployment(
+                    project_id=project_id,
+                    sha=f"old{n:09d}",
+                    image=image,
+                    status="superseded",
+                    created_at=datetime(2026, 1, 1) + timedelta(hours=n),
+                )
+            )
+        await session.commit()
+
+
+async def test_deploy_prunes_images_beyond_retention(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "IMAGE_RETENTION", 3)
+    project, deployment, _ = await seed(sessions)
+    await history(sessions, project.id, [f"ghcr.io/example-owner/demo:v{n}" for n in range(5)])
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "live", row.failure_reason
+    # Newest three kept: the one just deployed plus v4 and v3.
+    assert fake_docker.removed_images == [
+        "ghcr.io/example-owner/demo:v2",
+        "ghcr.io/example-owner/demo:v1",
+        "ghcr.io/example-owner/demo:v0",
+    ]
+    assert "pruned 3 superseded image(s)" in row.log
+
+
+async def test_prune_never_removes_the_image_just_deployed(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "IMAGE_RETENTION", 1)
+    project, deployment, _ = await seed(sessions)
+    # The same image deployed before, so it is old by date but currently live.
+    await history(sessions, project.id, [IMAGE, "ghcr.io/example-owner/demo:v9"])
+
+    await engine.run_deploy(deployment.id)
+
+    assert IMAGE not in fake_docker.removed_images
+
+
+async def test_prune_leaves_images_another_container_still_uses(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "IMAGE_RETENTION", 1)
+    project, deployment, _ = await seed(sessions)
+    await history(sessions, project.id, ["ghcr.io/example-owner/demo:busy"])
+    fake_docker.images_in_use.add("ghcr.io/example-owner/demo:busy")
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "live", row.failure_reason
+    assert fake_docker.removed_images == []
+    assert "pruned" not in row.log
+
+
+async def test_prune_ignores_images_already_gone(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "IMAGE_RETENTION", 1)
+    project, deployment, _ = await seed(sessions)
+    await history(sessions, project.id, ["ghcr.io/example-owner/demo:gone"])
+    fake_docker.images_missing.add("ghcr.io/example-owner/demo:gone")
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "live", row.failure_reason
+    assert fake_docker.removed_images == []
+
+
+async def test_retention_zero_keeps_every_image(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "IMAGE_RETENTION", 0)
+    project, deployment, _ = await seed(sessions)
+    await history(sessions, project.id, [f"ghcr.io/example-owner/demo:v{n}" for n in range(4)])
+
+    await engine.run_deploy(deployment.id)
+
+    assert fake_docker.removed_images == []
+
+
+async def test_prune_never_touches_another_project(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "IMAGE_RETENTION", 1)
+    project, deployment, _ = await seed(sessions)
+    async with sessions() as session:
+        other = Project(name="other", repo="example-owner/other", subdomain="app-other")
+        session.add(other)
+        await session.flush()
+        session.add(
+            Deployment(
+                project_id=other.id,
+                sha="othersha0001",
+                image="ghcr.io/example-owner/other:v1",
+                status="superseded",
+                created_at=datetime(2025, 1, 1),
+            )
+        )
+        await session.commit()
+
+    await engine.run_deploy(deployment.id)
+
+    assert "ghcr.io/example-owner/other:v1" not in fake_docker.removed_images
+
+
+async def test_prune_failure_never_fails_the_deploy(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "IMAGE_RETENTION", 1)
+
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) > 1:  # the deploy gets a client, the prune does not
+            raise RuntimeError("docker went away")
+        return fake_docker
+
+    project, deployment, _ = await seed(sessions)
+    await history(sessions, project.id, ["ghcr.io/example-owner/demo:v1"])
+    monkeypatch.setattr(engine, "get_client", flaky)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "live", row.failure_reason
