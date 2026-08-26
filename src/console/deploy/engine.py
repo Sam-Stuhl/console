@@ -97,6 +97,7 @@ async def run_deploy(deployment_id: str) -> None:
                 await _fail(session, deployment, f"internal error: {exc!r}")
             else:
                 await _refresh_icon(session, project)
+                await _prune_images(session, project, deployment)
 
 
 async def _refresh_icon(session: AsyncSession, project: Project) -> None:
@@ -107,6 +108,59 @@ async def _refresh_icon(session: AsyncSession, project: Project) -> None:
             await session.commit()
     except Exception:
         logger.warning("icon refresh failed for %s", project.name, exc_info=True)
+
+
+async def _prune_images(
+    session: AsyncSession, project: Project, deployment: Deployment
+) -> None:
+    """Best effort after a live deploy: drop this project's superseded images,
+    keeping config.IMAGE_RETENTION of them.
+
+    Every deploy pulls an image and nothing used to remove any, so the Docker
+    disk grew by one image per deploy until dockerd could not start and every
+    container on the box stopped.
+
+    Scoped to images this project deployed, read from the deployments table, so
+    the console only ever deletes what it created; the box's other images are
+    not its business. Removal is never forced, which makes Docker's own
+    "image is in use by container" refusal a second line of defence behind the
+    bookkeeping. Rollback is unaffected: _deploy pulls before it runs, so a
+    pruned image is re-fetched from GHCR.
+    """
+    keep = config.IMAGE_RETENTION
+    if keep <= 0:
+        return
+    try:
+        images = await session.scalars(
+            select(Deployment.image)
+            .where(
+                Deployment.project_id == project.id,
+                Deployment.image.is_not(None),
+            )
+            .order_by(Deployment.created_at.desc(), Deployment.id.desc())
+        )
+        seen: list[str] = []
+        for image in images:
+            if image not in seen:
+                seen.append(image)
+        stale = [i for i in seen[keep:] if i != deployment.image]
+        if not stale:
+            return
+
+        client = get_client()
+        removed = 0
+        for image in stale:
+            try:
+                await run(client.images.remove, image)
+                removed += 1
+            except docker.errors.ImageNotFound:
+                pass  # already gone, which is the desired state
+            except docker.errors.APIError:
+                pass  # still referenced by a container, or in use; leave it
+        if removed:
+            await _log(session, deployment, f"pruned {removed} superseded image(s)")
+    except Exception:
+        logger.warning("image prune failed for %s", project.name, exc_info=True)
 
 
 async def _deploy(

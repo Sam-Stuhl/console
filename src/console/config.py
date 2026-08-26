@@ -79,6 +79,12 @@ GITHUB_FILE_MAX_BYTES = 256 * 1024  # a console.toml is a few hundred bytes
 PRIORITY_START = 4_000_000_000
 HEALTH_POLL_INTERVAL = 2
 
+# Old images are removed after a successful deploy, keeping this many per
+# project (the live one plus rollback targets). The console never deletes an
+# image it did not deploy. Set to 0 to keep every image forever, which is what
+# the console did until a full disk stopped every container on the box.
+IMAGE_RETENTION = int(os.environ.get("CONSOLE_IMAGE_RETENTION", "3"))
+
 # One-off commands exec'd in an app's live container
 COMMAND_TIMEOUT = 30 * 60  # wall-clock cap for a single run, seconds
 COMMAND_OUTPUT_MAX = 256 * 1024  # stored-output cap per run, bytes
