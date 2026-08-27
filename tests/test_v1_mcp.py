@@ -338,9 +338,9 @@ async def test_an_agent_cannot_open_the_consoles_own_api(mcp, auth, fake_cf):
     result = await client.call("open_access_path", {"path": "api"})
 
     assert result["result"]["isError"] is True
-    # Only the refusal itself is pinned here. Whether its REASON reaches the
-    # agent is the SDK behavior the branch above this one fixes; on main a tool
-    # error still comes back as a bare "Error executing tool ...".
+    # The reason has to reach the agent, not just the failure: an agent told
+    # only "Error executing tool open_access_path" retries or guesses.
+    assert "/v1" in json.dumps(result)
     assert fake_cf.calls == []
 
 
@@ -351,4 +351,5 @@ async def test_a_read_token_cannot_open_a_path(mcp, auth, project, fake_cf):
     result = await client.call("open_access_path", {"project": "Blog", "path": "api"})
 
     assert result["result"]["isError"] is True
+    assert "read-only" in json.dumps(result)
     assert fake_cf.calls == []  # refused before Cloudflare was touched
