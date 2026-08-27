@@ -19,6 +19,7 @@ import {
   GITHUB_AUTHORIZE_PATH,
 } from '../api/client'
 import { formatBytes, since } from '../lib/format'
+import AccessPathsSection from '../components/AccessPathsSection'
 import ApiTokensSection from '../components/ApiTokensSection'
 import {
   CollapsibleSection,
@@ -194,6 +195,13 @@ export default function Settings() {
           isSet={isSet('cf_account_id')}
           secret={false}
         />
+
+        <div className="flex flex-col gap-3 border-t border-base-300/40 pt-4">
+          <p className="font-mono text-[11px] uppercase tracking-wide text-muted">
+            this console&apos;s paths without the login
+          </p>
+          <AccessPathsSection projectId={null} />
+        </div>
       </CollapsibleSection>
 
       <CollapsibleSection id="backups" title="backups">

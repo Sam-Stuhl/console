@@ -24,7 +24,9 @@ than the web console already is.
 (the documented setup uses Cloudflare Access), that gate will turn a `curl` away
 with a login page. Machine callers cannot complete a browser login, so those two
 paths have to be excepted from it: `docs/server-setup.md`, step 4, covers the
-Cloudflare version. Understand what that buys before you do it. Excepting a path
+Cloudflare version, and once the console holds a Cloudflare token you can add
+the same exception from Settings -> cloudflare access instead of the Cloudflare
+dashboard. Understand what that buys before you do it. Excepting a path
 from the edge gate means it is reachable from the whole internet, with your
 token as the only thing protecting your projects, deploys, logs, and app
 controls.

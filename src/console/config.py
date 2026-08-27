@@ -14,6 +14,12 @@ HEALTH_TIMEOUT_CAP = 300
 # Host rule suffix: app.localhost in dev, app.<your-domain> in prod
 DOMAIN = os.environ.get("CONSOLE_DOMAIN", "localhost")
 
+# The console's own hostname: where its UI and the machine surfaces (/hooks,
+# /v1, /mcp) are served. compose.prod.yaml routes console.<domain> here, so
+# that is the default; override it only if you serve the console elsewhere.
+# Used to name the Access apps that bypass the login on those paths.
+HOSTNAME = os.environ.get("CONSOLE_HOSTNAME", "") or f"console.{DOMAIN}"
+
 # Cloudflare Access automation. The console manages ONLY per-app Access
 # applications (the login gate), never DNS, the tunnel, or routing. The token
 # is scoped to "Access: Apps and Policies -> Edit" and nothing else, so a

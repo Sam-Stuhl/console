@@ -52,6 +52,32 @@ class Project(Base):
     icon_fetched_at: Mapped[datetime | None]
 
 
+class AccessPath(Base):
+    """One Cloudflare Access bypass: a path on a hostname that machines may
+    reach without the browser login, so a Shortcut, a cron job, or a webhook
+    sender can call an app's API. Cloudflare matches the more specific path
+    first, so the Bypass policy on host/path wins over the login gate on host.
+
+    project_id is null for the console's own hostname, which is not a project.
+    hostname is stored rather than derived: a project can move to another
+    domain, and the console's own host has no project to derive it from.
+
+    The unique constraint only binds project rows, since SQLite counts NULLs as
+    distinct; the console's own paths are deduped in access_paths.add."""
+
+    __tablename__ = "access_paths"
+    __table_args__ = (UniqueConstraint("project_id", "path"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=new_id)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE")
+    )
+    hostname: Mapped[str] = mapped_column(Text)
+    path: Mapped[str] = mapped_column(Text)
+    cf_app_id: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class Deployment(Base):
     __tablename__ = "deployments"
 

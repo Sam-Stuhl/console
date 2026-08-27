@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
+from console.api.access import router as access_router
 from console.api.alerts import router as alerts_router
 from console.api.backups import router as backups_router
 from console.api.commands import router as commands_router
@@ -92,6 +93,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="console", lifespan=lifespan)
+app.include_router(access_router)
 app.include_router(alerts_router)
 app.include_router(backups_router)
 app.include_router(commands_router)

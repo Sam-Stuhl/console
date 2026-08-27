@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import appicon, cloudflare, config, domains
+from console import access_paths, appicon, cloudflare, config, domains
 from console.db.models import Project, ProjectHealth
 from console.db.session import get_session
 from console.deploy.history import deploy_state
@@ -266,6 +266,22 @@ async def set_domain(
                 "back on here to recreate it for the new hostname."
             )
 
+    # Bypass paths are tied to the hostname too, and unlike the login gate they
+    # exist whether or not the app is protected. A failed move must not block
+    # the domain change, so move() reports rather than raises.
+    if body.repoint == "auto":
+        moved, failed = await access_paths.move(
+            session, project_id, f"{project.subdomain}.{target}"
+        )
+        if moved or failed:
+            paths_note = f"Moved {moved} bypass path(s)."
+            if failed:
+                paths_note += (
+                    f" {failed} could not be recreated: check them in Cloudflare, "
+                    "or remove and re-add them here."
+                )
+            note = f"{note} {paths_note}" if note else paths_note
+
     # Store null for the primary so the "null = primary" invariant holds.
     project.domain = None if target == config.DOMAIN else target
     await session.commit()
@@ -288,6 +304,9 @@ async def delete_project(
             await cloudflare.Access(token, account_id).delete_app(project.cf_app_id)
         except Exception:
             pass
+    # Same for any bypass paths, or the hostname keeps a hole with nothing left
+    # in the console to show it.
+    await access_paths.forget(session, project_id)
     await session.delete(project)
     await session.commit()
 
