@@ -14,11 +14,19 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import cloudflare, config, credentials, domains, settings_store
+from console import (
+    access_paths,
+    cloudflare,
+    config,
+    credentials,
+    domains,
+    settings_store,
+)
 from console.api.projects import EMAIL_RE, REPO_RE  # the project field rules
 from console.backup import engine as backup_engine
 from console.commands import runner
 from console.db.models import (
+    AccessPath,
     BackupRun,
     CommandRun,
     Deployment,
@@ -149,6 +157,7 @@ async def delete_project(session: AsyncSession, ref: str) -> None:
             await cloudflare.Access(token, account_id).delete_app(project.cf_app_id)
         except Exception:
             pass
+    await access_paths.forget(session, project.id)
     await session.delete(project)
     await session.commit()
 
@@ -235,12 +244,109 @@ async def set_domain(
                 "back on to recreate it for the new hostname."
             )
 
+    # Bypass paths hang off the hostname too, and unlike the login gate they
+    # exist whether or not the app is protected. A move that fails is reported,
+    # never raised: it must not block the domain change.
+    if repoint == "auto":
+        moved, failed = await access_paths.move(
+            session, project.id, f"{project.subdomain}.{target}"
+        )
+        if moved or failed:
+            paths_note = f"Moved {moved} bypass path(s)."
+            if failed:
+                paths_note += (
+                    f" {failed} could not be recreated: check them in Cloudflare, "
+                    "or close and reopen them here."
+                )
+            note = f"{note} {paths_note}" if note else paths_note
+
     # Null for the primary, so the "null means primary" invariant holds.
     project.domain = None if target == config.DOMAIN else target
     await session.commit()
     return models.DomainChange(
         project=_project(project, state), redeploy_required=True, note=note
     )
+
+
+# ------------------------------------------------------------ access paths
+
+
+async def _access_scope(
+    session: AsyncSession, ref: str | None
+) -> tuple[str | None, str]:
+    """The (project id, hostname) a bypass path belongs to. ref None means the
+    console's own hostname, which is not a project."""
+    if ref is None:
+        return None, config.HOSTNAME
+    project = await resolve_project(session, ref)
+    return project.id, f"{project.subdomain}.{domains.of(project)}"
+
+
+def _access_path(row: AccessPath) -> models.AccessPath:
+    return models.AccessPath(
+        id=row.id,
+        project_id=row.project_id,
+        hostname=row.hostname,
+        path=row.path,
+        url=f"https://{row.hostname}/{row.path}",
+        created_at=row.created_at,
+    )
+
+
+async def list_access_paths(
+    session: AsyncSession, ref: str | None = None
+) -> models.AccessPathList:
+    """Which paths on a hostname skip the Cloudflare Access login."""
+    project_id, hostname = await _access_scope(session, ref)
+    return models.AccessPathList(
+        hostname=hostname,
+        paths=[_access_path(row) for row in await access_paths.listing(session, project_id)],
+    )
+
+
+async def open_access_path(
+    session: AsyncSession, ref: str | None, path: str
+) -> models.AccessPath:
+    """Let anyone reach one path without the login. Read what that costs in
+    access_paths before calling it: the app's own authentication becomes the
+    only thing in front of that path."""
+    project_id, hostname = await _access_scope(session, ref)
+    try:
+        row = await access_paths.add(
+            session, project_id=project_id, hostname=hostname, raw_path=path
+        )
+    except ValueError as exc:
+        raise Invalid(str(exc))
+    except cloudflare.AccessNotConfigured as exc:
+        raise Unavailable(str(exc))
+    except cloudflare.AccessApiError as exc:
+        raise Upstream(str(exc))
+    return _access_path(row)
+
+
+async def close_access_path(
+    session: AsyncSession, ref: str | None, path: str
+) -> None:
+    """Put the login back in front of one path. Addressed by the path itself,
+    not an id, since that is what a caller has in hand."""
+    project_id, hostname = await _access_scope(session, ref)
+    # console_own=False here on purpose: this only tidies what was typed. The
+    # refusals belong to opening a path, and applying them to a close would
+    # answer "cannot be opened" to someone trying to shut something.
+    try:
+        wanted = access_paths.normalize(path, console_own=False)
+    except ValueError as exc:
+        raise Invalid(str(exc))
+    for row in await access_paths.listing(session, project_id):
+        if row.path == wanted:
+            try:
+                await access_paths.remove(session, row)
+            except cloudflare.AccessNotConfigured as exc:
+                raise Unavailable(str(exc))
+            except cloudflare.AccessApiError as exc:
+                raise Upstream(str(exc))
+            return
+    raise NotFound(f'no bypass path "{wanted}" on {hostname}')
 
 
 # ------------------------------------------------------------- deployments

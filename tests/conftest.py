@@ -5,7 +5,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from console import config, github
+from console import cloudflare, config, github
 from console.db.models import Base
 from console.db.session import get_session
 from console.main import app
@@ -106,3 +106,48 @@ def github_http(monkeypatch):
     monkeypatch.setattr(github.httpx, "AsyncClient", FakeGitHubClient)
     monkeypatch.setattr(config, "GITHUB_CLIENT_ID", GITHUB_CLIENT_ID)
     return FakeGitHubClient
+
+
+class FakeAccess:
+    """Stands in for console.cloudflare.Access: records what would have been
+    created or deleted in Cloudflare, and can be told to refuse."""
+
+    calls: list = []
+    fail_create = False
+    fail_delete = False
+    next_id = 0
+
+    def __init__(self, token, account_id):
+        pass
+
+    async def create_bypass(self, hostname, path):
+        FakeAccess.calls.append(("create", hostname, path))
+        if FakeAccess.fail_create:
+            raise cloudflare.AccessApiError("Cloudflare API 403: not allowed")
+        FakeAccess.next_id += 1
+        return f"cf-{FakeAccess.next_id}"
+
+    async def reconcile(self, hostname, protected, emails, cf_app_id):
+        FakeAccess.calls.append(("reconcile", hostname, protected))
+        return "gate-app"
+
+    async def delete_app(self, cf_app_id):
+        FakeAccess.calls.append(("delete", cf_app_id))
+        if FakeAccess.fail_delete:
+            raise cloudflare.AccessApiError("Cloudflare API 500: boom")
+
+
+@pytest.fixture
+def fake_cf(monkeypatch):
+    """A configured Cloudflare that never touches the network."""
+    FakeAccess.calls = []
+    FakeAccess.fail_create = False
+    FakeAccess.fail_delete = False
+    FakeAccess.next_id = 0
+
+    async def fake_resolve(session):
+        return ("tok", "acct")
+
+    monkeypatch.setattr(cloudflare, "resolve_credentials", fake_resolve)
+    monkeypatch.setattr(cloudflare, "Access", FakeAccess)
+    return FakeAccess

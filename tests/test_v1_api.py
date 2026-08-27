@@ -135,6 +135,10 @@ WRITE_ROUTES = [
     ("post", "/v1/projects/blog/deployments/d1/redeploy"),
     ("post", "/v1/projects/blog/controls/restart"),
     ("post", "/v1/projects/blog/commands"),
+    ("post", "/v1/projects/blog/access/paths"),
+    ("delete", "/v1/projects/blog/access/paths/api"),
+    ("post", "/v1/access/paths"),
+    ("delete", "/v1/access/paths/api"),
     ("post", "/v1/backups"),
 ]
 
@@ -146,6 +150,8 @@ READ_ROUTES = [
     "/v1/projects/blog/container",
     "/v1/projects/blog/secrets",
     "/v1/projects/blog/commands",
+    "/v1/projects/blog/access/paths",
+    "/v1/access/paths",
     "/v1/backups",
 ]
 
@@ -229,6 +235,11 @@ async def test_every_write_route_is_covered_by_the_scope_test():
     }
     # /v1/projects/{project}/controls/{action} is tested via a concrete action.
     tested = {(m, p.replace("/restart", "/{action}")) for m, p in tested}
+    # A bypass path is addressed by the path itself, so it is tested with one.
+    tested = {
+        (m, p.replace("/access/paths/api", "/access/paths/{path:path}"))
+        for m, p in tested
+    }
     assert declared == tested, f"untested writes: {declared - tested}"
 
 
@@ -596,3 +607,90 @@ async def test_the_docs_page_renders(client):
     res = await client.get("/v1/docs")
     assert res.status_code == 200
     assert "swagger" in res.text.lower()
+
+
+# --------------------------------------------------------- access paths
+
+
+async def test_open_and_list_a_bypass_path(client, project, write_auth, fake_cf):
+    opened = await client.post(
+        f"/v1/projects/{project['subdomain']}/access/paths",
+        json={"path": "/api/ingest"},
+        headers=write_auth,
+    )
+
+    assert opened.status_code == 201
+    body = opened.json()
+    assert body["path"] == "api/ingest"
+    assert body["url"] == f"https://blog.{config.DOMAIN}/api/ingest"
+    assert fake_cf.calls == [("create", f"blog.{config.DOMAIN}", "api/ingest")]
+
+    listed = await client.get(
+        f"/v1/projects/{project['name']}/access/paths", headers=write_auth
+    )
+    assert listed.json()["hostname"] == f"blog.{config.DOMAIN}"
+    assert [p["path"] for p in listed.json()["paths"]] == ["api/ingest"]
+
+
+async def test_close_a_bypass_path_by_its_path(client, project, write_auth, fake_cf):
+    await client.post(
+        f"/v1/projects/blog/access/paths", json={"path": "api"}, headers=write_auth
+    )
+
+    closed = await client.delete(
+        "/v1/projects/blog/access/paths/api", headers=write_auth
+    )
+
+    assert closed.status_code == 204
+    assert ("delete", "cf-1") in fake_cf.calls
+
+
+async def test_closing_a_path_that_is_not_open_is_a_404(client, project, write_auth, fake_cf):
+    res = await client.delete("/v1/projects/blog/access/paths/api", headers=write_auth)
+
+    assert res.status_code == 404
+
+
+async def test_console_scope_lives_beside_the_project_one(client, write_auth, fake_cf):
+    opened = await client.post(
+        "/v1/access/paths", json={"path": "hooks"}, headers=write_auth
+    )
+
+    assert opened.status_code == 201
+    assert opened.json()["hostname"] == config.HOSTNAME
+    assert opened.json()["project_id"] is None
+    listed = await client.get("/v1/access/paths", headers=write_auth)
+    assert [p["path"] for p in listed.json()["paths"]] == ["hooks"]
+
+
+async def test_v1_refuses_to_open_the_consoles_own_api(client, write_auth, fake_cf):
+    # The one bypass that would hand this very surface's console to anyone.
+    res = await client.post(
+        "/v1/access/paths", json={"path": "api"}, headers=write_auth
+    )
+
+    assert res.status_code == 400
+    assert "/v1" in res.json()["detail"]
+    assert fake_cf.calls == []
+
+
+async def test_a_read_token_cannot_open_a_path(client, project, read_auth, fake_cf):
+    res = await client.post(
+        "/v1/projects/blog/access/paths", json={"path": "api"}, headers=read_auth
+    )
+
+    assert res.status_code == 403
+    assert fake_cf.calls == []
+
+
+async def test_deleting_a_project_over_v1_closes_its_bypasses(
+    client, project, write_auth, fake_cf
+):
+    await client.post(
+        "/v1/projects/blog/access/paths", json={"path": "api"}, headers=write_auth
+    )
+
+    assert (
+        await client.delete("/v1/projects/blog", headers=write_auth)
+    ).status_code == 204
+    assert ("delete", "cf-1") in fake_cf.calls
