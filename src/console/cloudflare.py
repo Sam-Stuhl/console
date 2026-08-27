@@ -1,14 +1,15 @@
-"""Cloudflare Access automation. The console manages ONLY per-app Access
-applications: the login gate in front of an app's hostname. It never touches
-DNS, the tunnel, or routing (the wildcard route handles those), so the API
-token is scoped to "Access: Apps and Policies -> Edit" and that scope is the
-whole blast radius.
+"""Cloudflare Access automation. The console manages ONLY Access applications:
+the login gate in front of a hostname, and the Bypass apps that let machines
+reach one path through it. It never touches DNS, the tunnel, or routing (the
+wildcard route handles those), so the API token is scoped to "Access: Apps and
+Policies -> Edit" and that scope is the whole blast radius.
 
 Credentials come from Settings (managed in the console UI), falling back to the
 CONSOLE_CF_* file/env for backward compatibility. Without either, the access
 toggle 503s and the rest of the console is unaffected.
 """
 
+from contextlib import suppress
 from pathlib import Path
 
 import httpx
@@ -77,6 +78,17 @@ class Access:
             "include": [{"email": {"email": e}} for e in emails],
         }
 
+    @staticmethod
+    def _bypass_body() -> dict:
+        """Let everyone through with no login. Only ever attached to an app
+        scoped to a single path, whose own authentication is then the only
+        thing in front of it."""
+        return {
+            "name": "console bypass",
+            "decision": "bypass",
+            "include": [{"everyone": {}}],
+        }
+
     async def _create_app(self, client: httpx.AsyncClient, hostname: str, emails: list[str]) -> str:
         app = await self._request(
             client,
@@ -120,6 +132,40 @@ class Access:
                 await self._set_policy(client, cf_app_id, emails)
                 return cf_app_id
             return await self._create_app(client, hostname, emails)
+
+    async def create_bypass(self, hostname: str, path: str) -> str:
+        """Register {hostname}/{path} as its own Access app that lets everyone
+        through. Cloudflare evaluates the more specific path first, so this
+        wins over any login gate on the bare hostname.
+
+        An app whose policy failed to attach would deny everyone rather than
+        bypass, which is the opposite of what was asked for, so a half-created
+        app is removed before the error is raised."""
+        async with httpx.AsyncClient(timeout=15) as client:
+            app = await self._request(
+                client,
+                "POST",
+                self._apps_url(),
+                json={
+                    "name": f"{hostname}/{path} (bypass)",
+                    "domain": f"{hostname}/{path}",
+                    "type": "self_hosted",
+                    "session_duration": "24h",
+                },
+            )
+            app_id = app["id"]
+            try:
+                await self._request(
+                    client,
+                    "POST",
+                    f"{self._apps_url()}/{app_id}/policies",
+                    json=self._bypass_body(),
+                )
+            except AccessApiError:
+                with suppress(Exception):
+                    await self._request(client, "DELETE", f"{self._apps_url()}/{app_id}")
+                raise
+            return app_id
 
     async def delete_app(self, cf_app_id: str) -> None:
         async with httpx.AsyncClient(timeout=15) as client:

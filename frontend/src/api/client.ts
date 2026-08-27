@@ -224,6 +224,34 @@ export const updateAccess = (id: string, isProtected: boolean, emails: string[])
     jsonInit('PUT', { protected: isProtected, emails }),
   )
 
+// A Cloudflare Access bypass: one path machines can reach without the login.
+// Scoped either to a project's hostname or to the console's own.
+export interface AccessPath {
+  id: string
+  path: string
+  hostname: string
+  url: string // what a caller hits, ready to paste into a client
+  created_at: string
+}
+
+export interface AccessPathList {
+  hostname: string
+  paths: AccessPath[]
+}
+
+// null means the console's own hostname, which is not a project.
+const accessPathsUrl = (projectId: string | null) =>
+  projectId ? `/api/projects/${projectId}/access/paths` : '/api/access/paths'
+
+export const fetchAccessPaths = (projectId: string | null) =>
+  getJson<AccessPathList>(accessPathsUrl(projectId))
+
+export const addAccessPath = (projectId: string | null, path: string) =>
+  request<AccessPath>(accessPathsUrl(projectId), jsonInit('POST', { path }))
+
+export const removeAccessPath = (projectId: string | null, pathId: string) =>
+  request<void>(`${accessPathsUrl(projectId)}/${pathId}`, jsonInit('DELETE'))
+
 export interface SettingsStatus {
   set: string[]
 }

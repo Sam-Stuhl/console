@@ -11,7 +11,7 @@ import json
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from console import tokens
+from console import config, tokens
 from console.db.models import Project, Secret
 from console.db.session import get_session
 from console.main import app
@@ -274,3 +274,60 @@ async def test_secret_values_never_reach_a_tool_result(mcp, auth, db, project):
     payload = json.dumps(result)
     assert "DATABASE_URL" in payload
     assert "super-secret-value" not in payload
+
+
+# ------------------------------------------------------------ access paths
+
+
+async def test_access_path_tools_are_listed(mcp, auth):
+    client = McpClient(mcp, await auth())
+    await client.initialize()
+    names = {t["name"] for t in await client.list_tools()}
+
+    assert {"list_access_paths", "open_access_path", "close_access_path"} <= names
+
+
+async def test_an_agent_opens_and_closes_a_path(mcp, auth, project, fake_cf):
+    client = McpClient(mcp, await auth(tokens.WRITE))
+    await client.initialize()
+
+    opened = await client.call(
+        "open_access_path", {"project": "Blog", "path": "/api/ingest"}
+    )
+    assert opened["result"]["isError"] is not True
+    assert "api/ingest" in json.dumps(opened)
+    assert ("create", f"blog.{config.DOMAIN}", "api/ingest") in fake_cf.calls
+
+    listed = await client.call("list_access_paths", {"project": "Blog"})
+    assert "api/ingest" in json.dumps(listed)
+
+    closed = await client.call(
+        "close_access_path", {"project": "Blog", "path": "api/ingest"}
+    )
+    assert closed["result"]["isError"] is not True
+    assert ("delete", "cf-1") in fake_cf.calls
+
+
+async def test_an_agent_cannot_open_the_consoles_own_api(mcp, auth, fake_cf):
+    # Omitting project targets the console itself, where this would hand over
+    # the very surface the agent is talking to.
+    client = McpClient(mcp, await auth(tokens.WRITE))
+    await client.initialize()
+
+    result = await client.call("open_access_path", {"path": "api"})
+
+    assert result["result"]["isError"] is True
+    # Only the refusal itself is pinned here. Whether its REASON reaches the
+    # agent is the SDK behavior the branch above this one fixes; on main a tool
+    # error still comes back as a bare "Error executing tool ...".
+    assert fake_cf.calls == []
+
+
+async def test_a_read_token_cannot_open_a_path(mcp, auth, project, fake_cf):
+    client = McpClient(mcp, await auth(tokens.READ))
+    await client.initialize()
+
+    result = await client.call("open_access_path", {"project": "Blog", "path": "api"})
+
+    assert result["result"]["isError"] is True
+    assert fake_cf.calls == []  # refused before Cloudflare was touched

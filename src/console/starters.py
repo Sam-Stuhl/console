@@ -72,9 +72,10 @@ WORKFLOW_TEMPLATE = """\
 # every app picks it up. Pin @main to a commit sha if you want stability
 # over always-latest.
 #
-# One-time setup: in Cloudflare Access, add a Bypass policy for the
-# /hooks/* path on the console hostname. Those endpoints authenticate
-# themselves with the GitHub OIDC token, so Access must let them through.
+# One-time setup: the /hooks path on the console hostname has to skip the
+# Cloudflare login, since those endpoints authenticate themselves with the
+# GitHub OIDC token and a runner cannot log in. Add it in the console under
+# Settings -> cloudflare access, or by hand as a Bypass policy in Cloudflare.
 
 name: deploy
 

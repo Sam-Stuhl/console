@@ -126,7 +126,11 @@ authenticate themselves with a signed GitHub OIDC token, so that path must
 bypass Access while everything else requires your login.
 
 Zero Trust -> **Access -> Applications**. Create **two** self-hosted apps
-(Cloudflare evaluates the more specific path first):
+(Cloudflare evaluates the more specific path first). App B has to be made here;
+App A can be too, or you can let the console make it for you once it is running
+and holds a Cloudflare token (step 9): **Settings -> cloudflare access -> this
+console's paths without the login**, where the same three machine paths are one
+field each. Either way, the shape is:
 
 - **App A, the webhooks**: hostname `console.<your-domain>`, path `hooks`.
   One policy, action **Bypass**, include **Everyone**. (Safe: the console
@@ -136,7 +140,9 @@ Zero Trust -> **Access -> Applications**. Create **two** self-hosted apps
   One policy, action **Allow**, include your email.
 
 If you want scripts or AI agents to reach the console (see `docs/api.md`), add
-one Bypass app per machine path, the same shape as App A:
+one Bypass app per machine path, the same shape as App A (or add them in
+Settings, which refuses `/api`: the console's own write surface has no
+authentication of its own, so a bypass there would hand the console over):
 
 - **App A2**: hostname `console.<your-domain>`, path `v1`
 - **App A3**: hostname `console.<your-domain>`, path `mcp`
@@ -155,6 +161,13 @@ to Traefik). To put the same login in front of a specific app, flip the
 Cloudflare Access token in step 9), or add the Access app by hand exactly like
 App B. Leave apps that do their own auth, or that must receive third-party
 webhooks, public.
+
+An app can keep the login and still let machines call one path: **paths without
+the login**, in the same access section, creates the Bypass app for
+`<app-host>/<path>` so a Shortcut, a cron job, or a webhook sender reaches it
+while everything else on that hostname still asks for a login. Open a path only
+where the app authenticates its own callers, and give it a rate limit below: the
+console's Cloudflare token deliberately cannot write WAF rules.
 
 Then add a rate limit so nobody can flood `/hooks` with wrong-owner calls
 (each costs the console a token verification):

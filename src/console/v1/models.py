@@ -164,3 +164,22 @@ class DomainChange(BaseModel):
     project: Project
     redeploy_required: bool
     note: str | None = None
+
+
+class AccessPath(BaseModel):
+    """One path that skips the Cloudflare Access login, so a script, a
+    Shortcut, or a webhook sender can reach it."""
+
+    id: str
+    project_id: str | None  # null means the console's own hostname
+    hostname: str
+    path: str  # no leading slash, e.g. "api/ingest"
+    url: str  # what a caller hits, e.g. https://app.example.com/api/ingest
+    created_at: datetime
+
+
+class AccessPathList(BaseModel):
+    # The hostname comes back even when the list is empty: it is what the paths
+    # are relative to, and for the console's own scope nothing else states it.
+    hostname: str
+    paths: list[AccessPath]

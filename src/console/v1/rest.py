@@ -97,6 +97,10 @@ class AccessUpdate(BaseModel):
     emails: list[str] = []
 
 
+class AccessPathCreate(BaseModel):
+    path: str  # no leading slash needed, e.g. "api/ingest"
+
+
 class DomainUpdate(BaseModel):
     domain: str | None = None
     repoint: str = Field(
@@ -265,6 +269,85 @@ async def set_access(
     _=Depends(require_write),
 ) -> models.Project:
     return await service.set_access(session, project, body.protected, body.emails)
+
+
+@router.get(
+    "/projects/{project}/access/paths",
+    summary="Paths on this app that skip the Access login",
+)
+async def list_project_access_paths(
+    project: str,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_token),
+) -> models.AccessPathList:
+    return await service.list_access_paths(session, project)
+
+
+@router.post(
+    "/projects/{project}/access/paths",
+    status_code=201,
+    summary="Let machines reach one path without the login",
+)
+async def open_project_access_path(
+    project: str,
+    body: AccessPathCreate,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_write),
+) -> models.AccessPath:
+    return await service.open_access_path(session, project, body.path)
+
+
+@router.delete(
+    "/projects/{project}/access/paths/{path:path}",
+    status_code=204,
+    summary="Put the login back in front of one path",
+)
+async def close_project_access_path(
+    project: str,
+    path: str,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_write),
+) -> None:
+    await service.close_access_path(session, project, path)
+
+
+@router.get("/access/paths", summary="Paths on the console that skip the login")
+async def list_console_access_paths(
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_token),
+) -> models.AccessPathList:
+    """The console's own machine paths: /hooks for CI, /v1 and /mcp for callers
+    like this one."""
+    return await service.list_access_paths(session, None)
+
+
+@router.post(
+    "/access/paths",
+    status_code=201,
+    summary="Open one path on the console's own hostname",
+)
+async def open_console_access_path(
+    body: AccessPathCreate,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_write),
+) -> models.AccessPath:
+    """/api is refused: it is the console's own unauthenticated write surface,
+    so a bypass there would hand the console to the internet. This surface,
+    /v1, is the supported way in for a machine."""
+    return await service.open_access_path(session, None, body.path)
+
+
+@router.delete(
+    "/access/paths/{path:path}",
+    status_code=204,
+    summary="Close one path on the console's own hostname",
+)
+async def close_console_access_path(
+    path: str,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_write),
+) -> None:
+    await service.close_access_path(session, None, path)
 
 
 @router.put("/projects/{project}/domain", summary="Move a project to another domain")

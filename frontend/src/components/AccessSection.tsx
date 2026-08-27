@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchProject, updateAccess } from '../api/client'
+import AccessPathsSection from './AccessPathsSection'
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
@@ -166,6 +167,13 @@ export default function AccessSection({ projectId }: { projectId: string }) {
             )}
           </>
         )}
+      </div>
+
+      <div className="mt-2 flex flex-col gap-3 border-t border-base-300/40 pt-4">
+        <p className="font-mono text-[11px] uppercase tracking-wide text-muted">
+          paths without the login
+        </p>
+        <AccessPathsSection projectId={projectId} />
       </div>
 
       {notConfigured ? (

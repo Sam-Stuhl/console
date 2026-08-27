@@ -42,6 +42,13 @@ Secret values are not available through this server by design. list_secret_keys
 tells you which secrets a project has and when each changed, which distinguishes
 a missing secret from a wrong one, but reading or changing a value has to happen
 in the console's own web UI.
+
+An app behind the Cloudflare Access login answers a script or a webhook with a
+login page rather than its API. list_access_paths shows which paths are excepted
+from that, and open_access_path adds one. Opening a path exposes it to the whole
+internet with only the app's own authentication in front of it, so confirm with
+the operator before calling it, and never open a path just because a caller got
+a login page.
 """
 
 # The authenticated token for the request being handled. Set by the ASGI
@@ -263,6 +270,41 @@ async def set_project_access(
     Requires a write token. Protecting an app needs at least one email."""
     _require_write()
     return await _call(service.set_access, project, protected, emails or [])
+
+
+@server.tool()
+async def list_access_paths(project: str | None = None) -> dict:
+    """Which paths skip the Cloudflare Access login: for one app, or for the
+    console itself when project is omitted. Everything else on the hostname
+    still needs an interactive browser login, which is why a script or an agent
+    gets a login page from it."""
+    return await _call(service.list_access_paths, project)
+
+
+@server.tool()
+async def open_access_path(path: str, project: str | None = None) -> dict:
+    """Let anyone reach one path without the Access login, so a script, a
+    Shortcut, or a webhook sender can call it. Requires a write token.
+
+    This opens a hole: the path is then reachable from the whole internet, and
+    whatever the app checks itself is the only thing in front of it. Open one
+    only where the app authenticates its own callers, and confirm with the
+    operator first. Omitting project targets the console's own hostname, where
+    /api is refused (it has no authentication of its own; this /v1 surface with
+    a token is the supported way in). Cloudflare rate limiting is a separate
+    permission the console does not hold, so tell the operator to add a rate
+    limit for the path in Cloudflare."""
+    _require_write()
+    return await _call(service.open_access_path, project, path)
+
+
+@server.tool()
+async def close_access_path(path: str, project: str | None = None) -> str:
+    """Put the Access login back in front of one path. Requires a write token.
+    Addressed by the path itself, as list_access_paths reports it."""
+    _require_write()
+    await _call(service.close_access_path, project, path)
+    return f"closed {path}"
 
 
 @server.tool()
