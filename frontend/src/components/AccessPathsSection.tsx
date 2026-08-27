@@ -55,8 +55,7 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
     <div className="flex max-w-2xl flex-col gap-3">
       <p className="font-mono text-xs leading-relaxed text-faint">
         Paths that skip the Cloudflare login, so a script, a Shortcut, or a
-        webhook can call them. Everything else on <span className="text-muted">{data.hostname}</span>{' '}
-        keeps its gate.
+        webhook can call them. Everything else on the site keeps its gate.
       </p>
 
       {paths.length > 0 && (
@@ -67,9 +66,11 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
               className="flex items-center justify-between gap-3 border-b border-base-300/40 py-1.5 last:border-none"
             >
               <span className="flex min-w-0 flex-wrap items-baseline gap-2">
-                <span className="truncate">/{p.path}</span>
+                <span className="truncate">
+                  <span className="text-muted">{p.hostname}</span>/{p.path}
+                </span>
                 {p.hostname !== data.hostname && (
-                  <span className="text-warning">still on {p.hostname}</span>
+                  <span className="text-warning">old hostname</span>
                 )}
               </span>
               <button
@@ -97,12 +98,15 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
           if (newPath.trim()) setConfirming(newPath)
         }}
       >
-        <input
-          value={newPath}
-          onChange={(e) => setNewPath(e.target.value)}
-          placeholder={projectId ? 'api/ingest' : 'hooks'}
-          className="input input-sm w-64 border-base-300 bg-base-100 font-mono text-xs"
-        />
+        <label className="flex h-8 items-center rounded-field border border-base-300 bg-base-100 pl-2 font-mono text-xs focus-within:border-base-content/30">
+          <span className="whitespace-nowrap text-muted">{data.hostname}</span>
+          <input
+            value={newPath}
+            onChange={(e) => setNewPath(e.target.value)}
+            placeholder={projectId ? '/api' : '/hooks'}
+            className="w-44 bg-transparent pr-2 font-mono text-xs outline-none placeholder:text-faint"
+          />
+        </label>
         <button type="submit" className="btn btn-ghost btn-sm font-mono text-muted">
           open path
         </button>
@@ -111,7 +115,7 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
       {confirming && (
         <div className="flex flex-wrap items-center gap-3 font-mono text-xs">
           <span className="text-warning">
-            anyone on the internet can reach /{pending}. open it?
+            anyone on the internet can reach {data.hostname}/{pending}. open it?
           </span>
           <button
             type="button"
