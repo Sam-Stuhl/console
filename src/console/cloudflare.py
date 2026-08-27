@@ -70,10 +70,15 @@ class Access:
             raise AccessApiError(f"Cloudflare API {resp.status_code}: {reason}")
         return data.get("result")
 
-    @staticmethod
-    def _policy_body(emails: list[str]) -> dict:
+    # The name the console gives its own allow-list, and how it finds that
+    # policy again later. An app may carry policies the console did not write
+    # (a Cloudflare service token, for one), and those are not its to rewrite.
+    POLICY_NAME = "console allow-list"
+
+    @classmethod
+    def _policy_body(cls, emails: list[str]) -> dict:
         return {
-            "name": "console allow-list",
+            "name": cls.POLICY_NAME,
             "decision": "allow",
             "include": [{"email": {"email": e}} for e in emails],
         }
@@ -108,11 +113,18 @@ class Access:
         return app_id
 
     async def _set_policy(self, client: httpx.AsyncClient, app_id: str, emails: list[str]) -> None:
+        """Update the console's own allow-list on an app, found by the name it
+        writes. It used to take policies[0], which is the console's only while
+        nothing else sorts above it: an app can carry policies the console did
+        not write, and rewriting one of those into an email allow-list would
+        quietly revoke whatever it was for (a service token, say) with nothing
+        anywhere saying so."""
         policies = await self._request(client, "GET", f"{self._apps_url()}/{app_id}/policies") or []
         body = self._policy_body(emails)
-        if policies:
+        mine = next((p for p in policies if p.get("name") == self.POLICY_NAME), None)
+        if mine:
             await self._request(
-                client, "PUT", f"{self._apps_url()}/{app_id}/policies/{policies[0]['id']}", json=body
+                client, "PUT", f"{self._apps_url()}/{app_id}/policies/{mine['id']}", json=body
             )
         else:
             await self._request(client, "POST", f"{self._apps_url()}/{app_id}/policies", json=body)
