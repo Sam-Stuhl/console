@@ -7,6 +7,13 @@ import {
   type AccessPath,
 } from '../api/client'
 
+// Paths on the console's own hostname that something depends on. /hooks is the
+// one CI calls to report a finished build, so closing it does not just gate a
+// path: every deploy silently gets a login page until it is opened again.
+const LOAD_BEARING: Record<string, string> = {
+  hooks: 'CI reports finished builds here. Closing it stops every deploy until it is opened again.',
+}
+
 /**
  * Cloudflare Access bypass paths for one hostname: an app's (projectId set) or
  * the console's own (projectId null).
@@ -26,10 +33,13 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
   const [newPath, setNewPath] = useState('')
   const [confirming, setConfirming] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  // The row waiting on a second click, for a path something else depends on.
+  const [closing, setClosing] = useState<string | null>(null)
 
   const done = () => {
     setActionError(null)
     setConfirming(null)
+    setClosing(null)
     setNewPath('')
     queryClient.invalidateQueries({ queryKey: key })
   }
@@ -63,7 +73,7 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
           {paths.map((p: AccessPath) => (
             <li
               key={p.id}
-              className="flex items-center justify-between gap-3 border-b border-base-300/40 py-1.5 last:border-none"
+              className="flex flex-wrap items-center justify-between gap-3 border-b border-base-300/40 py-1.5 last:border-none"
             >
               <span className="flex min-w-0 flex-wrap items-baseline gap-2">
                 <span className="truncate">
@@ -73,14 +83,41 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
                   <span className="text-warning">old hostname</span>
                 )}
               </span>
-              <button
-                type="button"
-                disabled={close.isPending}
-                className="shrink-0 text-error/80 transition-colors duration-150 hover:text-error hover:underline"
-                onClick={() => close.mutate(p.id)}
-              >
-                close
-              </button>
+              {closing === p.id ? (
+                // basis-full so the warning gets its own line under the path
+                // rather than being pushed off the right edge of the section.
+                <span className="flex basis-full flex-wrap items-center gap-3">
+                  <span className="text-warning">{LOAD_BEARING[p.path]}</span>
+                  <button
+                    type="button"
+                    disabled={close.isPending}
+                    className="text-error/80 transition-colors duration-150 hover:text-error hover:underline"
+                    onClick={() => close.mutate(p.id)}
+                  >
+                    close anyway
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted transition-colors duration-150 hover:text-base-content"
+                    onClick={() => setClosing(null)}
+                  >
+                    keep
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={close.isPending}
+                  className="shrink-0 text-error/80 transition-colors duration-150 hover:text-error hover:underline"
+                  onClick={() =>
+                    projectId === null && LOAD_BEARING[p.path]
+                      ? setClosing(p.id)
+                      : close.mutate(p.id)
+                  }
+                >
+                  close
+                </button>
+              )}
             </li>
           ))}
         </ul>

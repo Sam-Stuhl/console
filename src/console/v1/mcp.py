@@ -301,7 +301,11 @@ async def open_access_path(path: str, project: str | None = None) -> dict:
 @server.tool()
 async def close_access_path(path: str, project: str | None = None) -> str:
     """Put the Access login back in front of one path. Requires a write token.
-    Addressed by the path itself, as list_access_paths reports it."""
+    Addressed by the path itself, as list_access_paths reports it.
+
+    Some paths are load-bearing: closing hooks on the console's own hostname
+    stops every deploy, because CI reports finished builds there and a runner
+    cannot log in. Confirm with the operator before closing that one."""
     _require_write()
     await _call(service.close_access_path, project, path)
     return f"closed {path}"
