@@ -299,6 +299,25 @@ async def open_access_path(path: str, project: str | None = None) -> dict:
 
 
 @server.tool()
+async def list_unmanaged_access_paths(project: str | None = None) -> dict:
+    """Bypasses that exist in Cloudflare but are not recorded in this console,
+    usually made by hand in the dashboard before the console could do it. The
+    console cannot close what it does not know about, and would create a second
+    Cloudflare app for the same path, so these are worth adopting."""
+    return {"paths": await _call(service.list_unmanaged_access_paths, project)}
+
+
+@server.tool()
+async def adopt_access_path(cf_app_id: str, project: str | None = None) -> dict:
+    """Record an existing Cloudflare bypass in this console, by the cf_app_id
+    from list_unmanaged_access_paths. Requires a write token. Nothing is created
+    or changed at Cloudflare, so the path keeps working exactly as it did; this
+    only lets the console list and close it."""
+    _require_write()
+    return await _call(service.adopt_access_path, project, cf_app_id)
+
+
+@server.tool()
 async def close_access_path(path: str, project: str | None = None) -> str:
     """Put the Access login back in front of one path. Requires a write token.
     Addressed by the path itself, as list_access_paths reports it."""

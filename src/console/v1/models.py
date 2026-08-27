@@ -183,3 +183,19 @@ class AccessPathList(BaseModel):
     # are relative to, and for the console's own scope nothing else states it.
     hostname: str
     paths: list[AccessPath]
+
+
+class AccessPathOpened(BaseModel):
+    # adopted means the path already existed in Cloudflare and was taken over
+    # rather than created: nothing at the edge changed.
+    path: AccessPath
+    adopted: bool
+
+
+class UnmanagedAccessPath(BaseModel):
+    """A bypass that exists in Cloudflare but is not recorded here, usually made
+    by hand in the dashboard. Adopt it to bring it under the console."""
+
+    cf_app_id: str
+    hostname: str
+    path: str

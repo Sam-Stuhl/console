@@ -56,11 +56,12 @@ async def test_add_creates_the_bypass_then_records_it(client, fake_cf):
     )
 
     assert res.status_code == 201
-    body = res.json()
+    assert res.json()["adopted"] is False  # created, not taken over
+    body = res.json()["path"]
     assert body["path"] == "api/ingest"
     assert body["hostname"] == f"logbook.{config.DOMAIN}"
     assert body["url"] == f"https://logbook.{config.DOMAIN}/api/ingest"
-    assert fake_cf.calls == [("create", f"logbook.{config.DOMAIN}", "api/ingest")]
+    assert ("create", f"logbook.{config.DOMAIN}", "api/ingest") in fake_cf.calls
 
 
 async def test_listing_carries_the_hostname_even_when_empty(client, fake_cf):
@@ -99,7 +100,7 @@ async def test_remove_closes_the_bypass(client, fake_cf):
     project_id = await make_project(client)
     path_id = (
         await client.post(f"/api/projects/{project_id}/access/paths", json={"path": "api"})
-    ).json()["id"]
+    ).json()["path"]["id"]
 
     res = await client.delete(f"/api/projects/{project_id}/access/paths/{path_id}")
 
@@ -113,7 +114,7 @@ async def test_a_failed_close_keeps_the_row(client, fake_cf):
     project_id = await make_project(client)
     path_id = (
         await client.post(f"/api/projects/{project_id}/access/paths", json={"path": "api"})
-    ).json()["id"]
+    ).json()["path"]["id"]
     fake_cf.fail_delete = True
 
     res = await client.delete(f"/api/projects/{project_id}/access/paths/{path_id}")
@@ -128,7 +129,7 @@ async def test_another_projects_path_is_not_deletable_through_this_one(client, f
     b = await make_project(client, name="other", repo="example-owner/other", subdomain="other")
     path_id = (
         await client.post(f"/api/projects/{a}/access/paths", json={"path": "api"})
-    ).json()["id"]
+    ).json()["path"]["id"]
 
     res = await client.delete(f"/api/projects/{b}/access/paths/{path_id}")
 
@@ -142,8 +143,8 @@ async def test_console_paths_use_the_console_hostname(client, fake_cf):
     res = await client.post("/api/access/paths", json={"path": "hooks"})
 
     assert res.status_code == 201
-    assert res.json()["hostname"] == config.HOSTNAME
-    assert fake_cf.calls == [("create", config.HOSTNAME, "hooks")]
+    assert res.json()["path"]["hostname"] == config.HOSTNAME
+    assert ("create", config.HOSTNAME, "hooks") in fake_cf.calls
     listed = (await client.get("/api/access/paths")).json()
     assert listed["hostname"] == config.HOSTNAME
     assert [p["path"] for p in listed["paths"]] == ["hooks"]
@@ -154,7 +155,7 @@ async def test_console_api_bypass_refused_over_the_api(client, fake_cf):
 
     assert res.status_code == 400
     assert "/v1" in res.json()["detail"]
-    assert fake_cf.calls == []
+    assert not [c for c in fake_cf.calls if c[0] != "list"]
 
 
 async def test_console_and_project_paths_do_not_mix(client, fake_cf):
@@ -222,6 +223,124 @@ async def test_deleting_a_project_closes_its_bypasses(client, db, fake_cf):
     async with db() as session:
         assert await session.get(Project, project_id) is None
         assert await session.get(AccessPath, "cf-1") is None
+
+
+# --- adopting what Cloudflare already has ----------------------------------
+
+
+async def test_a_hand_made_bypass_is_discoverable(client, fake_cf):
+    project_id = await make_project(client)
+    fake_cf.apps = {
+        "hand-1": (f"logbook.{config.DOMAIN}/api/ingest", "bypass"),
+        "hand-2": (f"{config.HOSTNAME}/hooks", "bypass"),
+    }
+
+    app = (await client.get(f"/api/projects/{project_id}/access/paths/unmanaged")).json()
+    console = (await client.get("/api/access/paths/unmanaged")).json()
+
+    assert [(p["cf_app_id"], p["path"]) for p in app] == [("hand-1", "api/ingest")]
+    assert [(p["cf_app_id"], p["path"]) for p in console] == [("hand-2", "hooks")]
+
+
+@pytest.mark.parametrize(
+    "domain,decision",
+    [
+        ("logbook.example.org/api", "bypass"),  # a hostname this console does not manage
+        (f"logbook.{config.DOMAIN}", "bypass"),  # the login gate itself, no path
+        (f"logbook.{config.DOMAIN}/admin", "allow"),  # a gate ON a path, not a bypass
+    ],
+)
+async def test_discovery_leaves_other_apps_alone(client, fake_cf, domain, decision):
+    project_id = await make_project(client)
+    fake_cf.apps = {"other": (domain, decision)}
+
+    found = (await client.get(f"/api/projects/{project_id}/access/paths/unmanaged")).json()
+    console = (await client.get("/api/access/paths/unmanaged")).json()
+
+    assert found == []
+    assert console == []
+
+
+async def test_adopting_changes_nothing_at_cloudflare(client, db, fake_cf):
+    project_id = await make_project(client)
+    fake_cf.apps = {"hand-1": (f"logbook.{config.DOMAIN}/api/ingest", "bypass")}
+
+    res = await client.post(
+        f"/api/projects/{project_id}/access/paths/adopt", json={"cf_app_id": "hand-1"}
+    )
+
+    assert res.status_code == 201
+    assert res.json()["path"] == "api/ingest"
+    # The whole point: no create, no delete. Only the read that found it.
+    assert not [c for c in fake_cf.calls if c[0] in ("create", "delete")]
+    async with db() as session:
+        row = (await access_paths.listing(session, project_id))[0]
+        assert row.cf_app_id == "hand-1"
+
+
+async def test_an_adopted_path_is_closable(client, fake_cf):
+    project_id = await make_project(client)
+    fake_cf.apps = {"hand-1": (f"logbook.{config.DOMAIN}/api/ingest", "bypass")}
+    path_id = (
+        await client.post(
+            f"/api/projects/{project_id}/access/paths/adopt", json={"cf_app_id": "hand-1"}
+        )
+    ).json()["id"]
+
+    res = await client.delete(f"/api/projects/{project_id}/access/paths/{path_id}")
+
+    assert res.status_code == 204
+    assert ("delete", "hand-1") in fake_cf.calls
+
+
+async def test_an_adopted_path_stops_being_unmanaged(client, fake_cf):
+    project_id = await make_project(client)
+    fake_cf.apps = {"hand-1": (f"logbook.{config.DOMAIN}/api/ingest", "bypass")}
+    await client.post(
+        f"/api/projects/{project_id}/access/paths/adopt", json={"cf_app_id": "hand-1"}
+    )
+
+    left = (await client.get(f"/api/projects/{project_id}/access/paths/unmanaged")).json()
+
+    assert left == []
+
+
+async def test_a_bypass_cannot_be_adopted_under_the_wrong_project(client, fake_cf):
+    a = await make_project(client)
+    b = await make_project(client, name="other", repo="example-owner/other", subdomain="other")
+    fake_cf.apps = {"hand-1": (f"logbook.{config.DOMAIN}/api/ingest", "bypass")}
+
+    res = await client.post(
+        f"/api/projects/{b}/access/paths/adopt", json={"cf_app_id": "hand-1"}
+    )
+
+    assert res.status_code == 400
+    assert f"logbook.{config.DOMAIN}" in res.json()["detail"]
+    # And the misfiled row was rolled back, not left behind under project a.
+    assert (await client.get(f"/api/projects/{a}/access/paths")).json()["paths"] == []
+
+
+async def test_opening_a_path_cloudflare_already_has_adopts_it(client, fake_cf):
+    # The duplicate-app footgun: without this, "open path" would create a second
+    # Cloudflare app claiming the same path.
+    project_id = await make_project(client)
+    fake_cf.apps = {"hand-1": (f"logbook.{config.DOMAIN}/api/ingest", "bypass")}
+
+    res = await client.post(
+        f"/api/projects/{project_id}/access/paths", json={"path": "/api/ingest"}
+    )
+
+    assert res.status_code == 201
+    assert res.json()["adopted"] is True
+    assert res.json()["path"]["id"]
+    assert not [c for c in fake_cf.calls if c[0] == "create"]
+
+
+async def test_adopting_something_unknown_is_refused(client, fake_cf):
+    res = await client.post("/api/access/paths/adopt", json={"cf_app_id": "nope"})
+
+    assert res.status_code == 400
+    assert "adopt" in res.json()["detail"]
 
 
 # --- what actually goes to Cloudflare --------------------------------------

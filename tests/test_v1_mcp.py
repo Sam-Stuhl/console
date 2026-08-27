@@ -331,3 +331,28 @@ async def test_a_read_token_cannot_open_a_path(mcp, auth, project, fake_cf):
 
     assert result["result"]["isError"] is True
     assert fake_cf.calls == []  # refused before Cloudflare was touched
+
+
+async def test_an_agent_adopts_what_cloudflare_already_has(mcp, auth, project, fake_cf):
+    fake_cf.apps = {"hand-1": (f"blog.{config.DOMAIN}/api/ingest", "bypass")}
+    client = McpClient(mcp, await auth(tokens.WRITE))
+    await client.initialize()
+
+    found = await client.call("list_unmanaged_access_paths", {"project": "Blog"})
+    assert "hand-1" in json.dumps(found)
+
+    adopted = await client.call("adopt_access_path", {"project": "Blog", "cf_app_id": "hand-1"})
+
+    assert adopted["result"]["isError"] is not True
+    assert "api/ingest" in json.dumps(adopted)
+    assert not [c for c in fake_cf.calls if c[0] in ("create", "delete")]
+
+
+async def test_a_read_token_cannot_adopt(mcp, auth, project, fake_cf):
+    fake_cf.apps = {"hand-1": (f"blog.{config.DOMAIN}/api/ingest", "bypass")}
+    client = McpClient(mcp, await auth(tokens.READ))
+    await client.initialize()
+
+    result = await client.call("adopt_access_path", {"project": "Blog", "cf_app_id": "hand-1"})
+
+    assert result["result"]["isError"] is True

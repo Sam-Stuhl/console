@@ -162,6 +162,12 @@ Cloudflare Access token in step 9), or add the Access app by hand exactly like
 App B. Leave apps that do their own auth, or that must receive third-party
 webhooks, public.
 
+Already made these by hand? The console can take them over instead of you
+redoing them: **check Cloudflare** in either paths section lists the bypasses it
+found on hostnames it manages, and **adopt** records one against the id it
+already has. Nothing at Cloudflare is created or deleted, so `/hooks` keeps
+working while you do it.
+
 An app can keep the login and still let machines call one path: **paths without
 the login**, in the same access section, creates the Bypass app for
 `<app-host>/<path>` so a Shortcut, a cron job, or a webhook sender reaches it

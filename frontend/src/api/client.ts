@@ -246,8 +246,32 @@ const accessPathsUrl = (projectId: string | null) =>
 export const fetchAccessPaths = (projectId: string | null) =>
   getJson<AccessPathList>(accessPathsUrl(projectId))
 
+// adopted means the path already existed in Cloudflare and was taken over
+// rather than created, so nothing at the edge changed.
+export interface AccessPathOpened {
+  path: AccessPath
+  adopted: boolean
+}
+
 export const addAccessPath = (projectId: string | null, path: string) =>
-  request<AccessPath>(accessPathsUrl(projectId), jsonInit('POST', { path }))
+  request<AccessPathOpened>(accessPathsUrl(projectId), jsonInit('POST', { path }))
+
+// A bypass Cloudflare has that the console does not know about, usually made by
+// hand in the dashboard before the console could do it.
+export interface UnmanagedPath {
+  cf_app_id: string
+  hostname: string
+  path: string
+}
+
+export const fetchUnmanagedPaths = (projectId: string | null) =>
+  getJson<UnmanagedPath[]>(`${accessPathsUrl(projectId)}/unmanaged`)
+
+export const adoptAccessPath = (projectId: string | null, cfAppId: string) =>
+  request<AccessPath>(
+    `${accessPathsUrl(projectId)}/adopt`,
+    jsonInit('POST', { cf_app_id: cfAppId }),
+  )
 
 export const removeAccessPath = (projectId: string | null, pathId: string) =>
   request<void>(`${accessPathsUrl(projectId)}/${pathId}`, jsonInit('DELETE'))

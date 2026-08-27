@@ -127,6 +127,17 @@ class FakeAccess:
         FakeAccess.next_id += 1
         return f"cf-{FakeAccess.next_id}"
 
+    # Apps that exist in Cloudflare but not in the console: what a hand-made
+    # bypass looks like to discovery. {id: (domain, decision)}.
+    apps: dict = {}
+
+    async def list_apps(self):
+        FakeAccess.calls.append(("list", None, None))
+        return [{"id": i, "domain": d} for i, (d, _) in FakeAccess.apps.items()]
+
+    async def is_bypass(self, app_id):
+        return FakeAccess.apps.get(app_id, (None, None))[1] == "bypass"
+
     async def reconcile(self, hostname, protected, emails, cf_app_id):
         FakeAccess.calls.append(("reconcile", hostname, protected))
         return "gate-app"
@@ -141,6 +152,7 @@ class FakeAccess:
 def fake_cf(monkeypatch):
     """A configured Cloudflare that never touches the network."""
     FakeAccess.calls = []
+    FakeAccess.apps = {}
     FakeAccess.fail_create = False
     FakeAccess.fail_delete = False
     FakeAccess.next_id = 0

@@ -101,6 +101,10 @@ class AccessPathCreate(BaseModel):
     path: str  # no leading slash needed, e.g. "api/ingest"
 
 
+class AccessPathAdopt(BaseModel):
+    cf_app_id: str  # from the unmanaged listing
+
+
 class DomainUpdate(BaseModel):
     domain: str | None = None
     repoint: str = Field(
@@ -293,8 +297,34 @@ async def open_project_access_path(
     body: AccessPathCreate,
     session: AsyncSession = Depends(get_session),
     _=Depends(require_write),
-) -> models.AccessPath:
+) -> models.AccessPathOpened:
     return await service.open_access_path(session, project, body.path)
+
+
+@router.get(
+    "/projects/{project}/access/paths/unmanaged",
+    summary="Bypasses for this app that Cloudflare has and the console does not",
+)
+async def list_project_unmanaged_paths(
+    project: str,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_token),
+) -> list[models.UnmanagedAccessPath]:
+    return await service.list_unmanaged_access_paths(session, project)
+
+
+@router.post(
+    "/projects/{project}/access/paths/adopt",
+    status_code=201,
+    summary="Record an existing Cloudflare bypass here",
+)
+async def adopt_project_access_path(
+    project: str,
+    body: AccessPathAdopt,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_write),
+) -> models.AccessPath:
+    return await service.adopt_access_path(session, project, body.cf_app_id)
 
 
 @router.delete(
@@ -330,11 +360,35 @@ async def open_console_access_path(
     body: AccessPathCreate,
     session: AsyncSession = Depends(get_session),
     _=Depends(require_write),
-) -> models.AccessPath:
+) -> models.AccessPathOpened:
     """/api is refused: it is the console's own unauthenticated write surface,
     so a bypass there would hand the console to the internet. This surface,
     /v1, is the supported way in for a machine."""
     return await service.open_access_path(session, None, body.path)
+
+
+@router.get(
+    "/access/paths/unmanaged",
+    summary="Bypasses on the console's hostname that it does not manage yet",
+)
+async def list_console_unmanaged_paths(
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_token),
+) -> list[models.UnmanagedAccessPath]:
+    return await service.list_unmanaged_access_paths(session, None)
+
+
+@router.post(
+    "/access/paths/adopt",
+    status_code=201,
+    summary="Record an existing bypass on the console's own hostname",
+)
+async def adopt_console_access_path(
+    body: AccessPathAdopt,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_write),
+) -> models.AccessPath:
+    return await service.adopt_access_path(session, None, body.cf_app_id)
 
 
 @router.delete(

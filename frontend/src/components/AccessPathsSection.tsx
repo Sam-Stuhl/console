@@ -2,9 +2,12 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addAccessPath,
+  adoptAccessPath,
   fetchAccessPaths,
+  fetchUnmanagedPaths,
   removeAccessPath,
   type AccessPath,
+  type UnmanagedPath,
 } from '../api/client'
 
 /**
@@ -26,6 +29,10 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
   const [newPath, setNewPath] = useState('')
   const [confirming, setConfirming] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+  // null until a scan has run, so "none found" can be told apart from "not
+  // looked yet". Bypasses made in the dashboard are invisible until then.
+  const [unmanaged, setUnmanaged] = useState<UnmanagedPath[] | null>(null)
 
   const done = () => {
     setActionError(null)
@@ -36,7 +43,36 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
 
   const open = useMutation({
     mutationFn: (path: string) => addAccessPath(projectId, path),
-    onSuccess: done,
+    onSuccess: (opened) => {
+      done()
+      setUnmanaged(null)
+      setNote(
+        opened.adopted
+          ? `Cloudflare already had a bypass for /${opened.path.path}, so it is now managed here rather than duplicated.`
+          : null,
+      )
+    },
+    onError: (err: Error) => setActionError(err.message),
+  })
+
+  const scan = useMutation({
+    mutationFn: () => fetchUnmanagedPaths(projectId),
+    onSuccess: (found) => {
+      setActionError(null)
+      setNote(null)
+      setUnmanaged(found)
+    },
+    onError: (err: Error) => setActionError(err.message),
+  })
+
+  const adopt = useMutation({
+    mutationFn: (cfAppId: string) => adoptAccessPath(projectId, cfAppId),
+    onSuccess: (row) => {
+      setActionError(null)
+      setNote(`Adopted /${row.path}. Nothing at Cloudflare changed.`)
+      setUnmanaged((found) => (found ?? []).filter((f) => f.path !== row.path))
+      queryClient.invalidateQueries({ queryKey: key })
+    },
     onError: (err: Error) => setActionError(err.message),
   })
 
@@ -134,6 +170,54 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
           </button>
         </div>
       )}
+
+      <div className="flex flex-col gap-2 border-t border-base-300/40 pt-3">
+        <div className="flex flex-wrap items-baseline gap-2 font-mono text-xs">
+          <span className="text-faint">
+            Opened a path in the Cloudflare dashboard instead? The console
+            cannot list or close what it did not make.
+          </span>
+          <button
+            type="button"
+            disabled={scan.isPending}
+            className="text-accent transition-colors duration-150 hover:underline"
+            onClick={() => scan.mutate()}
+          >
+            {scan.isPending ? 'checking…' : 'check Cloudflare'}
+          </button>
+        </div>
+
+        {unmanaged !== null && unmanaged.length === 0 && (
+          <p className="font-mono text-xs text-muted">
+            nothing in Cloudflare that this console is missing
+          </p>
+        )}
+
+        {unmanaged !== null && unmanaged.length > 0 && (
+          <ul className="flex flex-col font-mono text-xs">
+            {unmanaged.map((found) => (
+              <li
+                key={found.cf_app_id}
+                className="flex items-center justify-between gap-3 border-b border-base-300/40 py-1.5 last:border-none"
+              >
+                <span className="truncate">
+                  <span className="text-muted">{found.hostname}</span>/{found.path}
+                </span>
+                <button
+                  type="button"
+                  disabled={adopt.isPending}
+                  className="shrink-0 text-accent transition-colors duration-150 hover:underline"
+                  onClick={() => adopt.mutate(found.cf_app_id)}
+                >
+                  adopt
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {note && <p className="font-mono text-xs text-muted">{note}</p>}
+      </div>
 
       <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
         {projectId

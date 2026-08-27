@@ -96,6 +96,7 @@ subdomain, so `/v1/projects/blog` works as well as the UUID.
 | `GET /v1/projects/{project}/secrets` | secret **names** and when each changed |
 | `GET /v1/projects/{project}/commands[/{id}]` | one-off command history and output |
 | `GET /v1/projects/{project}/access/paths`, `GET /v1/access/paths` | which paths skip the Access login, for an app or for the console |
+| `GET …/access/paths/unmanaged` (both scopes) | bypasses Cloudflare has that the console does not |
 | `GET /v1/backups` | backup status and history |
 | `POST /v1/projects/{project}/deployments` | deploy an image that already exists in the registry |
 | `POST /v1/projects/{project}/deployments/{id}/rollback` | roll back to a build that served traffic |
@@ -106,6 +107,7 @@ subdomain, so `/v1/projects/blog` works as well as the UUID.
 | `PUT /v1/projects/{project}/domain`, `/access` | move domains, toggle the Access gate |
 | `POST`/`DELETE /v1/projects/{project}/access/paths[/{path}]` | open or close one path on an app, without the login |
 | `POST`/`DELETE /v1/access/paths[/{path}]` | the same on the console's own hostname |
+| `POST …/access/paths/adopt` (both scopes) | record an existing Cloudflare bypass here |
 | `POST /v1/backups` | back up the console now |
 
 Writes need a `write` token; a `read` token gets a 403 that says so.
@@ -119,6 +121,15 @@ refused: an empty path, and `/api` on the console's own hostname, which has no
 authentication of its own (that is what this token surface is for). The
 Cloudflare rate limit that should accompany a bypass is a permission the console
 deliberately does not hold, so add it in the Cloudflare dashboard.
+
+A bypass made by hand in the Cloudflare dashboard is invisible to the console,
+which matters twice: it cannot be closed from here, and opening the same path
+would leave two Cloudflare apps claiming it. The `unmanaged` listing finds those
+(an app scoped to a path, with a bypass policy, on a hostname this console
+manages) and `adopt` records one against the id it already has. Nothing is
+created, deleted, or re-pointed at Cloudflare, so adopting is safe against a
+live install: the path CI depends on never stops working. Opening a path that
+Cloudflare already has adopts it too, and says so with `adopted: true`.
 
 Deploying an image builds nothing: the console pulls what CI, or a laptop,
 already pushed. The image's namespace must match `CONSOLE_OIDC_OWNER`, so the
@@ -155,13 +166,14 @@ with your console's real URL.
 The server ships instructions telling an agent how to work the console: start
 at `get_system`, then `list_projects`, and the usual path for diagnosing a sick
 app (`get_project` -> `get_container` -> `get_app_logs` -> `list_deployments`).
-Twenty-four tools, named for what they do: `get_system`, `list_projects`,
+Twenty-six tools, named for what they do: `get_system`, `list_projects`,
 `get_project`, `list_deployments`, `get_deployment`, `get_container`,
 `get_app_logs`, `list_secret_keys`, `list_commands`, `get_command`,
-`get_backups`, `list_access_paths`, and the write tools `deploy_image`,
-`rollback_deployment`, `redeploy`, `control_app`, `run_command`,
-`create_project`, `delete_project`, `set_project_domain`, `set_project_access`,
-`open_access_path`, `close_access_path`, `trigger_backup`.
+`get_backups`, `list_access_paths`, `list_unmanaged_access_paths`, and the write
+tools `deploy_image`, `rollback_deployment`, `redeploy`, `control_app`,
+`run_command`, `create_project`, `delete_project`, `set_project_domain`,
+`set_project_access`, `open_access_path`, `adopt_access_path`,
+`close_access_path`, `trigger_backup`.
 
 A `read` token calling a write tool gets a tool error saying so, rather than a
 failure it has to guess at.

@@ -136,8 +136,10 @@ WRITE_ROUTES = [
     ("post", "/v1/projects/blog/controls/restart"),
     ("post", "/v1/projects/blog/commands"),
     ("post", "/v1/projects/blog/access/paths"),
+    ("post", "/v1/projects/blog/access/paths/adopt"),
     ("delete", "/v1/projects/blog/access/paths/api"),
     ("post", "/v1/access/paths"),
+    ("post", "/v1/access/paths/adopt"),
     ("delete", "/v1/access/paths/api"),
     ("post", "/v1/backups"),
 ]
@@ -155,11 +157,19 @@ READ_ROUTES = [
     "/v1/backups",
 ]
 
+# Reads that call Cloudflare, so without credentials they answer 503 rather than
+# 200. They still need a token, so they ride the auth test but not the
+# happy-path one; test_a_read_token_can_discover covers them with a fake.
+CLOUDFLARE_READ_ROUTES = [
+    "/v1/projects/blog/access/paths/unmanaged",
+    "/v1/access/paths/unmanaged",
+]
+
 
 # ------------------------------------------------------------------- auth
 
 
-@pytest.mark.parametrize("path", READ_ROUTES)
+@pytest.mark.parametrize("path", READ_ROUTES + CLOUDFLARE_READ_ROUTES)
 async def test_reads_require_a_token(client, project, path):
     assert (await client.get(path)).status_code == 401
 
@@ -620,10 +630,11 @@ async def test_open_and_list_a_bypass_path(client, project, write_auth, fake_cf)
     )
 
     assert opened.status_code == 201
-    body = opened.json()
+    assert opened.json()["adopted"] is False
+    body = opened.json()["path"]
     assert body["path"] == "api/ingest"
     assert body["url"] == f"https://blog.{config.DOMAIN}/api/ingest"
-    assert fake_cf.calls == [("create", f"blog.{config.DOMAIN}", "api/ingest")]
+    assert ("create", f"blog.{config.DOMAIN}", "api/ingest") in fake_cf.calls
 
     listed = await client.get(
         f"/v1/projects/{project['name']}/access/paths", headers=write_auth
@@ -657,8 +668,8 @@ async def test_console_scope_lives_beside_the_project_one(client, write_auth, fa
     )
 
     assert opened.status_code == 201
-    assert opened.json()["hostname"] == config.HOSTNAME
-    assert opened.json()["project_id"] is None
+    assert opened.json()["path"]["hostname"] == config.HOSTNAME
+    assert opened.json()["path"]["project_id"] is None
     listed = await client.get("/v1/access/paths", headers=write_auth)
     assert [p["path"] for p in listed.json()["paths"]] == ["hooks"]
 
@@ -683,6 +694,39 @@ async def test_a_read_token_cannot_open_a_path(client, project, read_auth, fake_
     assert fake_cf.calls == []
 
 
+async def test_an_agent_can_adopt_a_hand_made_bypass(client, project, write_auth, fake_cf):
+    fake_cf.apps = {"hand-1": (f"blog.{config.DOMAIN}/api/ingest", "bypass")}
+
+    found = (
+        await client.get("/v1/projects/blog/access/paths/unmanaged", headers=write_auth)
+    ).json()
+    assert [(p["cf_app_id"], p["path"]) for p in found] == [("hand-1", "api/ingest")]
+
+    adopted = await client.post(
+        "/v1/projects/blog/access/paths/adopt",
+        json={"cf_app_id": "hand-1"},
+        headers=write_auth,
+    )
+
+    assert adopted.status_code == 201
+    assert adopted.json()["path"] == "api/ingest"
+    assert not [c for c in fake_cf.calls if c[0] in ("create", "delete")]
+    listed = await client.get("/v1/projects/blog/access/paths", headers=write_auth)
+    assert [p["path"] for p in listed.json()["paths"]] == ["api/ingest"]
+
+
+async def test_a_read_token_cannot_adopt(client, project, read_auth, fake_cf):
+    fake_cf.apps = {"hand-1": (f"blog.{config.DOMAIN}/api/ingest", "bypass")}
+
+    res = await client.post(
+        "/v1/projects/blog/access/paths/adopt",
+        json={"cf_app_id": "hand-1"},
+        headers=read_auth,
+    )
+
+    assert res.status_code == 403
+
+
 async def test_deleting_a_project_over_v1_closes_its_bypasses(
     client, project, write_auth, fake_cf
 ):
@@ -694,3 +738,10 @@ async def test_deleting_a_project_over_v1_closes_its_bypasses(
         await client.delete("/v1/projects/blog", headers=write_auth)
     ).status_code == 204
     assert ("delete", "cf-1") in fake_cf.calls
+
+
+@pytest.mark.parametrize("path", CLOUDFLARE_READ_ROUTES)
+async def test_a_read_token_can_discover(client, project, read_auth, fake_cf, path):
+    """Discovery reads Cloudflare but changes nothing, here or there, so a
+    read-only token is allowed to run it."""
+    assert (await client.get(path, headers=read_auth)).status_code == 200

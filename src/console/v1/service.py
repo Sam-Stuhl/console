@@ -306,13 +306,13 @@ async def list_access_paths(
 
 async def open_access_path(
     session: AsyncSession, ref: str | None, path: str
-) -> models.AccessPath:
+) -> models.AccessPathOpened:
     """Let anyone reach one path without the login. Read what that costs in
     access_paths before calling it: the app's own authentication becomes the
     only thing in front of that path."""
     project_id, hostname = await _access_scope(session, ref)
     try:
-        row = await access_paths.add(
+        row, adopted = await access_paths.add(
             session, project_id=project_id, hostname=hostname, raw_path=path
         )
     except ValueError as exc:
@@ -321,6 +321,48 @@ async def open_access_path(
         raise Unavailable(str(exc))
     except cloudflare.AccessApiError as exc:
         raise Upstream(str(exc))
+    return models.AccessPathOpened(path=_access_path(row), adopted=adopted)
+
+
+async def list_unmanaged_access_paths(
+    session: AsyncSession, ref: str | None = None
+) -> list[models.UnmanagedAccessPath]:
+    """Bypasses that exist in Cloudflare but not here, for one app or for the
+    console itself. Read-only against Cloudflare."""
+    project_id, _hostname = await _access_scope(session, ref)
+    try:
+        found = await access_paths.discover(session)
+    except cloudflare.AccessNotConfigured as exc:
+        raise Unavailable(str(exc))
+    except cloudflare.AccessApiError as exc:
+        raise Upstream(str(exc))
+    return [
+        models.UnmanagedAccessPath(
+            cf_app_id=c["cf_app_id"], hostname=c["hostname"], path=c["path"]
+        )
+        for c in found
+        if c["project_id"] == project_id
+    ]
+
+
+async def adopt_access_path(
+    session: AsyncSession, ref: str | None, cf_app_id: str
+) -> models.AccessPath:
+    """Record an existing Cloudflare bypass here, against the id it already has.
+    Nothing is created or changed at Cloudflare."""
+    project_id, _hostname = await _access_scope(session, ref)
+    try:
+        row = await access_paths.adopt(session, cf_app_id)
+    except ValueError as exc:
+        raise Invalid(str(exc))
+    except cloudflare.AccessNotConfigured as exc:
+        raise Unavailable(str(exc))
+    except cloudflare.AccessApiError as exc:
+        raise Upstream(str(exc))
+    if row.project_id != project_id:  # adopted under the wrong scope; undo it
+        await session.delete(row)
+        await session.commit()
+        raise Invalid(f"that bypass belongs to {row.hostname}")
     return _access_path(row)
 
 

@@ -35,6 +35,26 @@ class AccessPathOut(BaseModel):
     created_at: datetime
 
 
+class AccessPathOpened(BaseModel):
+    # adopted says the path already existed in Cloudflare and was taken over
+    # rather than created, which is worth telling the operator: nothing at the
+    # edge changed, so nothing about that path's behaviour just changed either.
+    path: AccessPathOut
+    adopted: bool
+
+
+class UnmanagedPath(BaseModel):
+    """A bypass that exists in Cloudflare but not here, waiting to be adopted."""
+
+    cf_app_id: str
+    hostname: str
+    path: str
+
+
+class AdoptRequest(BaseModel):
+    cf_app_id: str
+
+
 class AccessPathList(BaseModel):
     # The hostname is returned even when the list is empty: it is what the UI
     # shows the path against, and for the console scope nothing else knows it.
@@ -54,15 +74,49 @@ def _out(row: AccessPath) -> AccessPathOut:
 
 async def _add(
     session: AsyncSession, project_id: str | None, hostname: str, raw_path: str
-) -> AccessPathOut:
+) -> AccessPathOpened:
     try:
-        row = await access_paths.add(
+        row, adopted = await access_paths.add(
             session, project_id=project_id, hostname=hostname, raw_path=raw_path
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except cloudflare.AccessApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+    return AccessPathOpened(path=_out(row), adopted=adopted)
+
+
+async def _unmanaged(
+    session: AsyncSession, project_id: str | None
+) -> list[UnmanagedPath]:
+    try:
+        found = await access_paths.discover(session)
+    except cloudflare.AccessApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return [
+        UnmanagedPath(
+            cf_app_id=c["cf_app_id"], hostname=c["hostname"], path=c["path"]
+        )
+        for c in found
+        if c["project_id"] == project_id
+    ]
+
+
+async def _adopt(
+    session: AsyncSession, project_id: str | None, cf_app_id: str
+) -> AccessPathOut:
+    try:
+        row = await access_paths.adopt(session, cf_app_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except cloudflare.AccessApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    if row.project_id != project_id:  # adopted under the wrong scope; undo it
+        await session.delete(row)
+        await session.commit()
+        raise HTTPException(
+            status_code=400, detail=f"that bypass belongs to {row.hostname}"
+        )
     return _out(row)
 
 
@@ -92,11 +146,33 @@ async def add_project_path(
     project_id: str,
     body: PathCreate,
     session: AsyncSession = Depends(get_session),
-) -> AccessPathOut:
+) -> AccessPathOpened:
     """Open one path on this app's hostname to callers with no Access login."""
     project = await get_project(project_id, session)
     hostname = f"{project.subdomain}.{domains.of(project)}"
     return await _add(session, project_id, hostname, body.path)
+
+
+@router.get("/api/projects/{project_id}/access/paths/unmanaged")
+async def list_project_unmanaged(
+    project_id: str, session: AsyncSession = Depends(get_session)
+) -> list[UnmanagedPath]:
+    """Bypasses for this app that exist in Cloudflare but not here, usually
+    because they were made by hand before the console could. Read-only."""
+    await get_project(project_id, session)
+    return await _unmanaged(session, project_id)
+
+
+@router.post("/api/projects/{project_id}/access/paths/adopt", status_code=201)
+async def adopt_project_path(
+    project_id: str,
+    body: AdoptRequest,
+    session: AsyncSession = Depends(get_session),
+) -> AccessPathOut:
+    """Record an existing Cloudflare bypass here. Nothing at Cloudflare changes,
+    so the path keeps working exactly as it did."""
+    await get_project(project_id, session)
+    return await _adopt(session, project_id, body.cf_app_id)
 
 
 @router.delete("/api/projects/{project_id}/access/paths/{path_id}", status_code=204)
@@ -120,10 +196,24 @@ async def list_console_paths(
 @router.post("/api/access/paths", status_code=201)
 async def add_console_path(
     body: PathCreate, session: AsyncSession = Depends(get_session)
-) -> AccessPathOut:
+) -> AccessPathOpened:
     """Open one path on the console's own hostname: /hooks for CI, /v1 or /mcp
     for scripts and agents. /api is refused; see access_paths."""
     return await _add(session, None, config.HOSTNAME, body.path)
+
+
+@router.get("/api/access/paths/unmanaged")
+async def list_console_unmanaged(
+    session: AsyncSession = Depends(get_session),
+) -> list[UnmanagedPath]:
+    return await _unmanaged(session, None)
+
+
+@router.post("/api/access/paths/adopt", status_code=201)
+async def adopt_console_path(
+    body: AdoptRequest, session: AsyncSession = Depends(get_session)
+) -> AccessPathOut:
+    return await _adopt(session, None, body.cf_app_id)
 
 
 @router.delete("/api/access/paths/{path_id}", status_code=204)

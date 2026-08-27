@@ -133,6 +133,38 @@ class Access:
                 return cf_app_id
             return await self._create_app(client, hostname, emails)
 
+    async def list_apps(self) -> list[dict]:
+        """Every Access app in the account. Used to find the ones somebody made
+        by hand in the dashboard, which the console has no record of.
+
+        Paged because an account with many apps would otherwise be silently
+        truncated to the first page, and a bypass the console cannot see is one
+        it will happily create a duplicate of."""
+        apps: list[dict] = []
+        async with httpx.AsyncClient(timeout=15) as client:
+            for page in range(1, 11):  # a backstop, not a real limit
+                batch = await self._request(
+                    client,
+                    "GET",
+                    self._apps_url(),
+                    params={"page": page, "per_page": 100},
+                )
+                if not batch:
+                    break
+                apps.extend(batch)
+                if len(batch) < 100:
+                    break
+        return apps
+
+    async def is_bypass(self, app_id: str) -> bool:
+        """Whether an app lets everyone through. An app's decision lives on its
+        policies, not on the app, so this is a second call per candidate."""
+        async with httpx.AsyncClient(timeout=15) as client:
+            policies = await self._request(
+                client, "GET", f"{self._apps_url()}/{app_id}/policies"
+            )
+        return any((p.get("decision") == "bypass") for p in policies or [])
+
     async def create_bypass(self, hostname: str, path: str) -> str:
         """Register {hostname}/{path} as its own Access app that lets everyone
         through. Cloudflare evaluates the more specific path first, so this
