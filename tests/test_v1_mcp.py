@@ -231,6 +231,27 @@ async def test_a_service_error_comes_back_as_a_tool_error(mcp, auth):
     assert "does-not-exist" in json.dumps(result)
 
 
+async def test_the_domain_message_survives_the_sdk(mcp, auth, project):
+    """The whole reason a ConsoleError becomes a ToolError rather than any
+    other exception.
+
+    The SDK treats an unrecognized exception as a crash and answers with a bare
+    "Error executing tool <name>", keeping the reason on the server. An agent
+    that gets only that cannot act, so this pins the text an operator would
+    otherwise have to read out of docker logs."""
+    client = McpClient(mcp, await auth(tokens.WRITE))
+    await client.initialize()
+    result = await client.call(
+        "deploy_image", {"project": "Blog", "image": "nope/blog:v1"}
+    )
+
+    text = result["result"]["content"][0]["text"]
+    assert result["result"]["isError"] is True
+    assert text != "Error executing tool deploy_image"
+    # validate_image's own words, raised deep in the service layer.
+    assert "namespace" in text
+
+
 # ------------------------------------------------------------------ scope
 
 

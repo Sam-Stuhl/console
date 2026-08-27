@@ -17,6 +17,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
 from console import config, tokens
@@ -62,14 +63,10 @@ session_factory = SessionLocal
 server = MCPServer(name="console", version="1", instructions=INSTRUCTIONS)
 
 
-class NotAuthorized(Exception):
-    """Raised inside a tool when the caller's token lacks write scope."""
-
-
 def _require_write() -> None:
     token = _token.get()
     if token is None or token.scope != tokens.WRITE:
-        raise NotAuthorized(
+        raise ToolError(
             "this token is read-only; mint a token with write scope to do this"
         )
 
@@ -86,13 +83,16 @@ async def _call(fn, *args, **kwargs) -> Any:
     """Run a service call in its own session and translate domain errors.
 
     ConsoleError messages are written for the caller, so they are re-raised as
-    plain ValueError: the SDK turns that into a tool error the agent can read
-    and act on, rather than an opaque traceback."""
+    the SDK's ToolError. That type is the only channel whose text reaches the
+    agent: any other exception is treated as a crash and answered with a bare
+    "Error executing tool <name>", with the reason left on the server. An agent
+    told only that much cannot act, and the message it needed ("no console.toml
+    in <repo> at <ref>") was readable only in the container log."""
     async with session_factory() as session:
         try:
             return _dump(await fn(session, *args, **kwargs))
         except ConsoleError as exc:
-            raise ValueError(str(exc)) from exc
+            raise ToolError(str(exc)) from exc
 
 
 # ------------------------------------------------------------------- reads
