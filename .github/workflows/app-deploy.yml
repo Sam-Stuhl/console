@@ -32,32 +32,60 @@ jobs:
       COMMIT_MSG: ${{ github.event.head_commit.message }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
+      # First step in the job, before checkout, so the notify steps can
+      # always reach the console: a build that dies at checkout still has
+      # to report its failure.
+      - name: Prepare the console token minter
+        run: |
+          cat > "$RUNNER_TEMP/console-token.sh" <<'EOF'
+          # Sets CONSOLE_TOKEN. Call this in the same step that sends the
+          # request, never once up front: a GitHub OIDC token lives for a
+          # few minutes, so a token minted before the build has already
+          # expired by the time a slow build finishes with it. That was a
+          # real bug: the console rejected the notify, the run still went
+          # green, and the deployment sat in "building" forever.
+          mint_console_token() {
+            local response
+            response=$(curl -sS --fail-with-body \
+              -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=console") || return 1
+            CONSOLE_TOKEN=$(printf '%s' "$response" | jq -r '.value')
+            if [ -z "$CONSOLE_TOKEN" ] || [ "$CONSOLE_TOKEN" = "null" ]; then
+              echo "::error::could not mint an OIDC token for the console"
+              return 1
+            fi
+            echo "::add-mask::$CONSOLE_TOKEN"
+          }
+          EOF
+
       - uses: actions/checkout@v4
 
       - name: Compute image name
         # GHCR requires a lowercase path
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
-      - name: Mint OIDC token for the console
-        run: |
-          TOKEN=$(curl -sS \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=console" | jq -r '.value')
-          echo "::add-mask::$TOKEN"
-          echo "CONSOLE_TOKEN=$TOKEN" >> "$GITHUB_ENV"
-
       - name: Notify build started
+        # Best effort, so a console blip does not stop an image being built
+        # and pushed: if this call is lost, /hooks/build-finished opens the
+        # deployment row instead. Still worth shouting about, since whatever
+        # rejected this will probably reject the finish notify too.
         run: |
-          jq -n \
-            --arg repo "$GITHUB_REPOSITORY" \
-            --arg sha "$GITHUB_SHA" \
-            --arg msg "$COMMIT_MSG" \
-            --arg run "$RUN_URL" \
-            '{repo: $repo, sha: $sha, commit_message: $msg, run_url: $run}' \
-          | curl -sS -X POST "$CONSOLE_URL/hooks/build-started" \
-              -H "Authorization: Bearer $CONSOLE_TOKEN" \
-              -H "Content-Type: application/json" \
-              --data @-
+          source "$RUNNER_TEMP/console-token.sh"
+          started() {
+            mint_console_token || return 1
+            jq -n \
+              --arg repo "$GITHUB_REPOSITORY" \
+              --arg sha "$GITHUB_SHA" \
+              --arg msg "$COMMIT_MSG" \
+              --arg run "$RUN_URL" \
+              '{repo: $repo, sha: $sha, commit_message: $msg, run_url: $run}' \
+            | curl -sS --fail-with-body -X POST "$CONSOLE_URL/hooks/build-started" \
+                -H "Authorization: Bearer $CONSOLE_TOKEN" \
+                -H "Content-Type: application/json" \
+                --data @-
+          }
+          started \
+            || echo "::warning::console did not accept the build-started notification"
 
       - name: Log in to GHCR
         run: |
@@ -65,6 +93,7 @@ jobs:
             | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
       - name: Build and push
+        id: build
         run: |
           SHORT_SHA=${GITHUB_SHA::7}
           # Honor app.dockerfile from console.toml (default ./Dockerfile)
@@ -75,7 +104,12 @@ jobs:
 
       - name: Notify build finished (success)
         if: success()
+        # --fail-with-body prints the console's rejection and exits nonzero,
+        # so a notify the console refused turns the run red. A green run
+        # here means the console really was told.
         run: |
+          source "$RUNNER_TEMP/console-token.sh"
+          mint_console_token
           jq -n \
             --arg repo "$GITHUB_REPOSITORY" \
             --arg sha "$GITHUB_SHA" \
@@ -84,20 +118,26 @@ jobs:
             --arg msg "$COMMIT_MSG" \
             --arg run "$RUN_URL" \
             '{repo: $repo, sha: $sha, conclusion: "success", image: $image, console_toml: $toml, commit_message: $msg, run_url: $run}' \
-          | curl -sS -X POST "$CONSOLE_URL/hooks/build-finished" \
+          | curl -sS --fail-with-body -X POST "$CONSOLE_URL/hooks/build-finished" \
               -H "Authorization: Bearer $CONSOLE_TOKEN" \
               -H "Content-Type: application/json" \
               --data @-
 
       - name: Notify build finished (failure)
-        if: failure()
+        # Guarded on the build step rather than plain failure(): if the build
+        # succeeded and only the success notify was refused, the image is
+        # pushed and healthy, so reporting a failed build would be a lie. The
+        # red run is the signal there; deploy the pushed tag by hand.
+        if: failure() && steps.build.conclusion != 'success'
         run: |
+          source "$RUNNER_TEMP/console-token.sh"
+          mint_console_token
           jq -n \
             --arg repo "$GITHUB_REPOSITORY" \
             --arg sha "$GITHUB_SHA" \
             --arg run "$RUN_URL" \
             '{repo: $repo, sha: $sha, conclusion: "failure", run_url: $run}' \
-          | curl -sS -X POST "$CONSOLE_URL/hooks/build-finished" \
+          | curl -sS --fail-with-body -X POST "$CONSOLE_URL/hooks/build-finished" \
               -H "Authorization: Bearer $CONSOLE_TOKEN" \
               -H "Content-Type: application/json" \
               --data @-

@@ -79,6 +79,39 @@ def test_reusable_workflow_is_valid_and_authenticates_by_oidc():
     assert "/hooks/build-finished" in body
     # both outcomes are reported so a broken build fails fast, not via reaper
     assert "if: success()" in body
-    assert "if: failure()" in body
+    assert "failure()" in body
     # commit message is bound to env, never inlined into a run script
     assert "COMMIT_MSG: ${{ github.event.head_commit.message }}" in body
+
+
+def _notify_steps() -> list[dict]:
+    steps = yaml.safe_load(REUSABLE_WORKFLOW.read_text())["jobs"][
+        "build-and-deploy"
+    ]["steps"]
+    return [s for s in steps if "/hooks/" in s.get("run", "")]
+
+
+def test_every_notify_mints_its_own_token():
+    """A GitHub OIDC token lives for minutes. One minted at the top of the
+    job and reused after the build expires on any build slower than that,
+    the console rejects the notify, and the deployment sits in "building"
+    with no image while the run shows green."""
+    notifies = _notify_steps()
+    assert len(notifies) == 3  # started, finished-success, finished-failure
+    for step in notifies:
+        assert "mint_console_token" in step["run"], step["name"]
+
+    # No step may stash a token for a later step to pick up.
+    for step in yaml.safe_load(REUSABLE_WORKFLOW.read_text())["jobs"][
+        "build-and-deploy"
+    ]["steps"]:
+        run = step.get("run", "")
+        assert "CONSOLE_TOKEN" not in run or "GITHUB_ENV" not in run, step.get("name")
+
+
+def test_a_refused_build_finished_fails_the_run():
+    """curl exits 0 on an HTTP 401, so without --fail-with-body a rejected
+    notify leaves a green run and a console that was never told."""
+    for step in _notify_steps():
+        if "/hooks/build-finished" in step["run"]:
+            assert "--fail-with-body" in step["run"], step["name"]
