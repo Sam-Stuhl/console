@@ -133,5 +133,8 @@ BUILD_TIMEOUT = 30 * 60
 BUILD_IMAGE = "docker:28-cli"
 BUILD_BUILDER = "console-build"
 BUILD_LOG_MAX = 512 * 1024  # stored build output cap per deployment, bytes
+# How often the watcher asks GitHub for each auto-build project's branch head.
+# One request per project per sweep, against a 5000/hour authenticated limit.
+WATCH_INTERVAL = 30
 DEPLOY_TIMEOUT_MARGIN = 10 * 60
 QUEUED_TIMEOUT = 60 * 60

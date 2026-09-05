@@ -33,6 +33,7 @@ from console.deploy import engine as deploy_engine
 from console.cloudflare import AccessNotConfigured
 from console.backup.engine import backup_loop
 from console.deploy.reaper import reaper_loop
+from console.deploy.watcher import watch_loop
 from console.monitor import monitor_loop
 from console.secrets.crypto import KeyNotConfigured
 from console.v1 import mcp as v1_mcp, rest as v1_rest
@@ -80,11 +81,12 @@ async def lifespan(_app: FastAPI):
     reaper = asyncio.create_task(reaper_loop())
     backups = asyncio.create_task(backup_loop())
     monitor = asyncio.create_task(monitor_loop())
+    watcher = asyncio.create_task(watch_loop())
     # The MCP transport keeps per-client sessions, which need a running manager;
     # without this every /mcp request fails.
     async with _mcp_sessions.run():
         yield
-    for task in (reaper, backups, monitor):
+    for task in (reaper, backups, monitor, watcher):
         task.cancel()
         # A loop that already died on a bug logged its own reason; shutdown
         # only needs the task settled, and the ones after it still cancelled.

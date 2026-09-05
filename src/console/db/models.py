@@ -50,6 +50,11 @@ class Project(Base):
     icon_data: Mapped[bytes | None] = mapped_column(LargeBinary)
     icon_content_type: Mapped[str | None] = mapped_column(Text)
     icon_fetched_at: Mapped[datetime | None]
+    # Build on push: the watcher polls the branch head and builds what it
+    # finds new. watched_sha is the head it last saw, set to the current head
+    # when auto_build is switched on so enabling never builds old pushes.
+    auto_build: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    watched_sha: Mapped[str | None] = mapped_column(Text)
 
 
 class AccessPath(Base):

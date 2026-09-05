@@ -149,3 +149,80 @@ async def test_a_sha_that_already_deployed_can_be_built_again(
 async def test_unknown_project_is_404(client, db, owner, github_http, enqueued):
     response = await client.post("/api/projects/nope/builds", json={})
     assert response.status_code == 404
+
+
+# ------------------------------------------------------------ build on push
+
+
+async def test_enabling_auto_build_baselines_at_the_current_head(
+    client, db, owner, github_http, enqueued
+):
+    project_id = await seed_project(db)
+    await connect_github(db)
+    github_http.routes["/commits/main"] = commit_response()
+
+    response = await client.put(
+        f"/api/projects/{project_id}/auto-build", json={"enabled": True}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["auto_build"] is True
+    async with db() as session:
+        project = await session.get(Project, project_id)
+    assert project.auto_build is True
+    assert project.watched_sha == SHA
+    assert enqueued == []  # enabling never builds what is already there
+
+
+async def test_disabling_auto_build_clears_the_baseline(client, db, owner, github_http):
+    project_id = await seed_project(db)
+    async with db() as session:
+        project = await session.get(Project, project_id)
+        project.auto_build = True
+        project.watched_sha = SHA
+        await session.commit()
+
+    response = await client.put(
+        f"/api/projects/{project_id}/auto-build", json={"enabled": False}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["auto_build"] is False
+    async with db() as session:
+        project = await session.get(Project, project_id)
+    assert project.auto_build is False
+    assert project.watched_sha is None
+    assert github_http.requests == []  # nothing to look up when switching off
+
+
+async def test_enabling_without_github_is_503(client, db, owner, github_http):
+    project_id = await seed_project(db)
+
+    response = await client.put(
+        f"/api/projects/{project_id}/auto-build", json={"enabled": True}
+    )
+
+    assert response.status_code == 503
+    async with db() as session:
+        project = await session.get(Project, project_id)
+    assert project.auto_build is False
+
+
+async def test_enabling_with_a_missing_branch_is_400(client, db, owner, github_http):
+    project_id = await seed_project(db, branch="nope")
+    await connect_github(db)
+    github_http.routes["/commits/nope"] = FakeResponse({"message": "Not Found"}, 404)
+
+    response = await client.put(
+        f"/api/projects/{project_id}/auto-build", json={"enabled": True}
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == 'no branch "nope" in example-owner/demo'
+
+
+async def test_project_out_carries_auto_build(client, db, owner, github_http):
+    project_id = await seed_project(db)
+    response = await client.get(f"/api/projects/{project_id}")
+    assert response.status_code == 200
+    assert response.json()["auto_build"] is False

@@ -5,6 +5,7 @@ import type { DeploymentSummary } from '../api/client'
 import { fetchDeployments, redeployDeployment, rollbackDeployment } from '../api/client'
 import { since, took } from '../lib/format'
 import DeployBadge from './DeployBadge'
+import AutoBuildToggle from './AutoBuildToggle'
 import BuildNowButton from './BuildNowButton'
 import DeployImageForm from './DeployImageForm'
 
@@ -31,10 +32,12 @@ export default function DeploymentsSection({
   projectId,
   branch,
   imageHint,
+  autoBuild,
 }: {
   projectId: string
   branch: string
   imageHint: string
+  autoBuild: boolean
 }) {
   const queryClient = useQueryClient()
   const { data: deployments, isError, error } = useQuery({
@@ -77,6 +80,7 @@ export default function DeploymentsSection({
           no deployments yet. build {branch} here, or deploy an image that is
           already built.
         </p>
+        <AutoBuildToggle projectId={projectId} branch={branch} enabled={autoBuild} />
         <BuildNowButton projectId={projectId} branch={branch} />
         <DeployImageForm
           projectId={projectId}
@@ -89,6 +93,7 @@ export default function DeploymentsSection({
 
   return (
     <div className="flex flex-col gap-3">
+      <AutoBuildToggle projectId={projectId} branch={branch} enabled={autoBuild} />
       <BuildNowButton projectId={projectId} branch={branch} />
       <DeployImageForm projectId={projectId} imageHint={imageHint} branch={branch} />
       <table className="w-full font-mono text-xs">

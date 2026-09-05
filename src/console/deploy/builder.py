@@ -99,6 +99,27 @@ async def request_build(
     return await start_build(session, project, sha, message)
 
 
+async def set_auto_build(session: AsyncSession, project: Project, enabled: bool) -> None:
+    """Switch build-on-push for a project. Enabling records the branch head
+    as already seen, so the watcher builds only what is pushed from now on;
+    "build now" is for the head that is already there."""
+    if enabled and not project.auto_build:
+        try:
+            token = await github.resolve_token(session)
+            sha, _ = await github.GitHub(token).resolve_commit(project.repo, project.branch)
+        except github.GitHubNotConnected as exc:
+            raise Unavailable(str(exc))
+        except github.FileNotFound:
+            raise Invalid(f'no branch "{project.branch}" in {project.repo}')
+        except github.GitHubApiError as exc:
+            raise Upstream(str(exc))
+        project.watched_sha = sha
+    if not enabled:
+        project.watched_sha = None
+    project.auto_build = enabled
+    await session.commit()
+
+
 async def start_build(
     session: AsyncSession, project: Project, sha: str, message: str | None
 ) -> Deployment:

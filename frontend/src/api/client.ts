@@ -50,6 +50,7 @@ export interface Project {
   icon_fetched_at: string | null // cache-buster for the icon URL
   deploy_status: string | null // latest deployment status (queued/building/deploying/live/failed/…)
   is_live: boolean // a deployment is currently serving, independent of the monitor ping
+  auto_build: boolean // a push to the tracked branch is built on the server and deployed
   image_hint: string // what CI tags this project's images as, minus the tag
 }
 
@@ -389,6 +390,11 @@ export const redeployDeployment = (projectId: string, deploymentId: string) =>
     `/api/projects/${projectId}/deployments/${deploymentId}/redeploy`,
     jsonInit('POST'),
   )
+
+// Build on push, on or off. Enabling takes the current branch head as
+// already seen, so only pushes from now on are built.
+export const updateAutoBuild = (id: string, enabled: boolean) =>
+  request<Project>(`/api/projects/${id}/auto-build`, jsonInit('PUT', { enabled }))
 
 // Build the repo at a ref on the server and deploy what comes out. The
 // console does this on its own for a push to the tracked branch; this is the

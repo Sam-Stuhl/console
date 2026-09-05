@@ -91,6 +91,7 @@ def _project(
         health=health,
         deploy_status=deploy_status,
         is_live=is_live,
+        auto_build=project.auto_build,
         # GHCR paths are lowercase, which is what the build workflow pushes to.
         image_hint=f"ghcr.io/{project.repo.lower()}:",
         created_at=project.created_at,
