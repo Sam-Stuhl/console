@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from console.api.projects import get_project
 from console.db.models import Deployment
 from console.db.session import get_session
-from console.deploy import engine as deploy_engine, history, manual
+from console.deploy import engine as deploy_engine, history, manual, plan
 from console.errors import Invalid, Unavailable, Upstream
 
 router = APIRouter(prefix="/api/projects/{project_id}/deployments")
@@ -136,7 +136,7 @@ async def rollback(
             status_code=409 if target.status == "live" else 400, detail=problem
         )
 
-    deployment = history.clone(target, f"rollback to {target.sha[:7]}")
+    deployment = history.clone(target, f"rollback to {plan.short_sha(target.sha)}")
     session.add(deployment)
     await deploy_engine.queue(session, deployment)
     return {"deployment_id": deployment.id, "status": "queued"}
@@ -160,7 +160,7 @@ async def redeploy(
             detail=problem,
         )
 
-    deployment = history.clone(target, f"redeploy of {target.sha[:7]}")
+    deployment = history.clone(target, f"redeploy of {plan.short_sha(target.sha)}")
     session.add(deployment)
     await deploy_engine.queue(session, deployment)
     return {"deployment_id": deployment.id, "status": "queued"}
