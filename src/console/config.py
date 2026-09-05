@@ -124,5 +124,14 @@ ICON_MAX_BYTES = 256 * 1024  # refuse anything larger than this
 # Reaper timeouts for stuck deployments, in seconds
 REAPER_INTERVAL = 60
 BUILD_TIMEOUT = 30 * 60
+
+# Building app images on the box (docs/plans/2026-09-04-build-on-push.md).
+# The build runs in a one-shot docker CLI container that attaches to a
+# BuildKit builder the host created with memory and CPU caps; the console
+# never creates that builder, so a missing one fails the build with the
+# setup step named. BUILD_TIMEOUT above bounds the whole build.
+BUILD_IMAGE = "docker:28-cli"
+BUILD_BUILDER = "console-build"
+BUILD_LOG_MAX = 512 * 1024  # stored build output cap per deployment, bytes
 DEPLOY_TIMEOUT_MARGIN = 10 * 60
 QUEUED_TIMEOUT = 60 * 60
