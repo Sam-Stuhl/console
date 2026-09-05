@@ -350,7 +350,6 @@ export interface TomlValidation {
 export interface StarterFiles {
   console_toml: string
   dockerfile: string
-  workflow: string
 }
 
 export const importSecrets = (projectId: string, text: string) =>
@@ -405,7 +404,7 @@ export const requestBuild = (projectId: string, ref?: string) =>
     jsonInit('POST', { ref }),
   )
 
-// Deploy an image that is already in GHCR, with no build webhook involved.
+// Deploy an image that is already in GHCR, with no build involved.
 // console.toml is read from the repo at `ref` unless one is pasted, which is
 // the fallback for when GitHub cannot be reached.
 export const deployImage = (

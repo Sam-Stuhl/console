@@ -131,7 +131,7 @@ def test_validate_image_requires_a_tag(owner):
 
 
 def test_validate_image_without_an_owner_configured_trusts_nothing(monkeypatch):
-    # Mirrors oidc.verify: an unset owner rejects everything, and says why
+    # An unset owner rejects everything, and says why
     # rather than complaining that the ref is not under "ghcr.io//".
     monkeypatch.setattr(config, "OIDC_OWNER", "")
     with pytest.raises(ValueError, match="no CONSOLE_OIDC_OWNER is set"):

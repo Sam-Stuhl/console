@@ -225,10 +225,10 @@ async def test_redeploy_in_progress_is_409(client, db, enqueued):
     assert enqueued == []
 
 
-# --- deploying an image with no build webhook -------------------------------
+# --- deploying an image that was built somewhere else -----------------------
 #
 # The gap this closes: a project whose CI has never run, or is broken, had no
-# way in at all, because only /hooks/build-finished ever created a row.
+# way in at all, because only a finished CI build ever created a row.
 
 
 @pytest.fixture

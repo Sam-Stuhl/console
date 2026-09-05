@@ -390,8 +390,8 @@ async def deploy_image(
     console_toml: str | None = None,
 ) -> models.Accepted:
     """Deploy an image that already exists in the registry. Nothing is built
-    here; the console pulls what CI, or a laptop, already pushed. The
-    console.toml is read from the repo unless one is pasted."""
+    here; the console pulls what a laptop, or an earlier build, already
+    pushed. The console.toml is read from the repo unless one is pasted."""
     project = await resolve_project(session, ref)
     deployment = await manual.deploy_image(
         session, project, image, git_ref, console_toml

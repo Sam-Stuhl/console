@@ -35,12 +35,6 @@ export default function SetupSection({
       content: starters.dockerfile,
       hint: 'python example; swap the base image and commands for your stack',
     },
-    {
-      name: '.github/workflows/deploy.yml',
-      file: 'deploy.yml',
-      content: starters.workflow,
-      hint: 'thin caller for the shared build workflow; no edits needed',
-    },
   ]
 
   async function copy(name: string, content: string) {
@@ -67,8 +61,8 @@ export default function SetupSection({
       <ol className="flex list-none flex-col gap-3">
         <li className="flex flex-col gap-1">
           <span>
-            <span className="text-faint">1.</span> add these files to the repo
-            (console.toml and Dockerfile at the root), commented inside:
+            <span className="text-faint">1.</span> add these two files at the
+            root of the repo, commented inside:
           </span>
           <table className="w-full">
             <tbody>
@@ -111,8 +105,9 @@ export default function SetupSection({
           you declared in console.toml to the secrets section below
         </li>
         <li>
-          <span className="text-faint">3.</span> push to {branch}; the build
-          workflow notifies the console and the deploy shows up here
+          <span className="text-faint">3.</span> press &quot;build {branch} now&quot;
+          under deployments, or switch on &quot;build on push&quot; and push; the
+          console builds the repo on the server and the deploy shows up here
         </li>
         <li className="text-muted">
           already have an image in the registry? you do not need any of this to

@@ -33,14 +33,14 @@ def image_prefix() -> str:
 def validate_image(ref: str) -> str:
     """Check an image ref the console is asked to deploy, and return its tag.
 
-    Both entry points use this: the build webhook, where the ref comes from a
-    workflow, and the manual deploy, where it is typed. The namespace rule is
+    Both entry points use this: the builder, where the ref is what it pushed,
+    and the manual deploy, where it is typed. The namespace rule is
     the same for both, and the pull auth the engine builds only works there
     anyway."""
     ref = ref.strip()
     if not config.OIDC_OWNER:
-        # Same stance as oidc.verify: with no owner set, no namespace is
-        # trusted, and saying so beats rejecting everything against "ghcr.io//".
+        # With no owner set, no namespace is trusted, and saying so beats
+        # rejecting everything against "ghcr.io//".
         raise ValueError(
             "no CONSOLE_OIDC_OWNER is set, so no image namespace is trusted. "
             "Set it to the GitHub account whose images this console may deploy."
@@ -62,8 +62,8 @@ async def find_open_deployment(
     session: AsyncSession, project_id: str, sha: str
 ) -> Deployment | None:
     """The in-flight deployment of this sha, if there is one. Every way of
-    starting a build or deploy checks here first, so a duplicate webhook
-    delivery, a double click, and a poll that fires twice are all harmless."""
+    starting a build checks here first, so a double click and a poll that
+    fires twice are both harmless."""
     return await session.scalar(
         select(Deployment)
         .where(

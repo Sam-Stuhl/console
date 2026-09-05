@@ -1,6 +1,6 @@
-"""Deploy history, and every way to start a deploy that is not a build
-webhook: roll back to an older build, redeploy an existing one, or deploy an
-image straight from GHCR.
+"""Deploy history, and every way to start a deploy that is not a build: roll
+back to an older build, redeploy an existing one, or deploy an image straight
+from GHCR.
 
 All three produce the same thing, a fresh queued row that the engine runs
 through the same pull / run-alongside / health-check / swap pipeline. History
@@ -12,9 +12,9 @@ the currently live row (rejected as pointless) or rows superseded after
 going live. Rows superseded straight out of the queue never ran, which
 shows as deploy_started_at being null.
 
-Creating a deployment from an image is the path for a project whose CI has
-never run or is broken: build and deploy are separate concerns, and an image
-sitting in GHCR should be reachable without Actions being healthy. The
+Creating a deployment from an image is the path for an image built somewhere
+else: build and deploy are separate concerns, and an image sitting in GHCR
+should be deployable without a build. The
 console.toml behind it is read from the repo, which stays its source of
 truth; a pasted one is the fallback for when GitHub itself is unreachable."""
 
@@ -105,9 +105,8 @@ async def create_deployment(
     body: DeploymentCreate,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Deploy an image that already exists in GHCR, with no build webhook
-    involved. Nothing is built here: the console pulls what CI, or a laptop,
-    already pushed."""
+    """Deploy an image that already exists in GHCR. Nothing is built here:
+    the console pulls what a laptop, or an earlier build, already pushed."""
     project = await get_project(project_id, session)
     try:
         deployment = await manual.deploy_image(

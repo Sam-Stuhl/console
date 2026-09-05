@@ -316,8 +316,8 @@ async def list_console_access_paths(
     session: AsyncSession = Depends(get_session),
     _=Depends(require_token),
 ) -> models.AccessPathList:
-    """The console's own machine paths: /hooks for CI, /v1 and /mcp for callers
-    like this one."""
+    """The console's own machine paths: /v1 and /mcp, for callers like this
+    one."""
     return await service.list_access_paths(session, None)
 
 

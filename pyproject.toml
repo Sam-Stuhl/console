@@ -13,7 +13,6 @@ dependencies = [
     "alembic",
     "cryptography",
     "pydantic",
-    "pyjwt[crypto]",
     "httpx",
     "mcp>=2.1",
 ]

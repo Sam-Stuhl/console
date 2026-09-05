@@ -168,9 +168,9 @@ class GitHub:
         """Repos the connected account owns, most recently pushed first.
 
         Filtered to CONSOLE_OIDC_OWNER, because a project under any other owner
-        could never deploy anyway: oidc.verify rejects it. With no owner set
+        could never deploy anyway: its images are outside the trusted namespace. With no owner set
         nothing can deploy at all, so filtering would only hide everything;
-        show what the token can see and let the OIDC check speak for itself.
+        show what the token can see and let the namespace check speak for itself.
         """
         repos = await self._get(
             "/user/repos",

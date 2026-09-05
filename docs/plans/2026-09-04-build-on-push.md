@@ -12,7 +12,12 @@ night: "build now" built notion-sync in 45 s and planner in 65 s, both live;
 then planner #439 merged at 02:50:00 and the watcher opened its build at
 02:50:32 with no button press and no Actions run, live at 02:51:22.
 claude-quota's build fails on purpose until its repo carries a console.toml.
-Phases 4 and 5 can start.
+Phases 4 and 5 landed the same night: the app-side `deploy.yml` callers
+are removed by PR in planner (#440), banking-dash (#35), notion-sync (#1),
+resume-git (#14), and logbook (#6); the reusable workflow, the OIDC webhook
+receiver, and pyjwt are gone from this repo. Left to do on the box after
+this ships: close the `hooks` path in Settings, cloudflare access, since
+nothing calls it any more.
 
 ## Goal
 

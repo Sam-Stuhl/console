@@ -2,10 +2,9 @@
 path of an app that is otherwise behind the browser login.
 
 Access evaluates the more specific path first, so an app registered on
-`host/api/ingest` with a Bypass policy wins over the login gate on `host`. That
-is exactly the shape docs/server-setup.md builds by hand for the console's own
-/hooks; this module does it from the console instead of the Cloudflare
-dashboard, for an app's own API paths and for the console's.
+`host/api/ingest` with a Bypass policy wins over the login gate on `host`. This
+module builds that shape from the console instead of the Cloudflare dashboard,
+for an app's own API paths and for the console's machine paths (/v1, /mcp).
 
 A bypass is a real hole, not a convenience: the path is then reachable by
 anyone on the internet, and whatever authentication the app does itself is the
@@ -31,9 +30,7 @@ from console.db.models import AccessPath
 PATH_RE = re.compile(r"^[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$")
 
 # First segments the console will not open up on its OWN hostname. /api is the
-# SPA's unauthenticated write surface (Access is its only gate), and /hooks
-# self-authenticates but is not the console's to hand out casually here: it is
-# part of setup, added once in Cloudflare, and listed in the UI as such.
+# SPA's unauthenticated write surface (Access is its only gate).
 CONSOLE_RESERVED = {"api"}
 
 

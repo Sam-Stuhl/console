@@ -20,7 +20,6 @@ from console.api.controls import router as controls_router
 from console.api.deployments import router as deployments_router
 from console.api.domains import router as domains_router
 from console.api.github import router as github_router
-from console.api.hooks import router as hooks_router
 from console.api.projects import router as projects_router
 from console.api.secrets import router as secrets_router
 from console.api.settings import router as settings_router
@@ -105,7 +104,6 @@ app.include_router(credentials_router)
 app.include_router(deployments_router)
 app.include_router(domains_router)
 app.include_router(github_router)
-app.include_router(hooks_router)
 app.include_router(projects_router)
 app.include_router(secrets_router)
 app.include_router(settings_router)
