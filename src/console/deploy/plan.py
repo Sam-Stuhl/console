@@ -9,6 +9,7 @@ change on a running container, which rules out a constant: instead each
 deployment's priority is the live one's minus 1, counting down from
 PRIORITY_START."""
 
+import hashlib
 import re
 
 from sqlalchemy import select
@@ -75,8 +76,29 @@ async def find_open_deployment(
     )
 
 
-def container_name(app_name: str, sha: str) -> str:
-    return f"{app_name}-{sha[:7]}"
+GIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+
+
+def short_sha(ref: str) -> str:
+    """A git sha shortened to 7 characters; any other tag left whole.
+
+    The deployment's sha column holds whatever identified the build: a commit
+    sha from CI, or the image tag of a manual deploy. Slicing a tag like
+    "manual-bc1c66d" to seven characters gave "manual-", which names nothing."""
+    return ref[:7] if GIT_SHA_RE.match(ref) else ref
+
+
+def container_name(app_name: str, ref: str) -> str:
+    """The container (and Traefik router) name for a deployment.
+
+    A commit sha keeps the runbook's short-sha suffix. Any other tag gets a
+    short digest of itself instead: it is unique per tag, so two manual deploys
+    of different builds never share a name, and it is always label-safe, which
+    the tag itself is not (a dot in a router name breaks the label key). The
+    full tag is on the console.sha label and the deployment row."""
+    if GIT_SHA_RE.match(ref):
+        return f"{app_name}-{ref[:7]}"
+    return f"{app_name}-{hashlib.sha256(ref.encode()).hexdigest()[:7]}"
 
 
 def host_rule(subdomain: str, domain: str) -> str:

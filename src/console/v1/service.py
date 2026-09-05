@@ -34,7 +34,7 @@ from console.db.models import (
     ProjectHealth,
     Secret,
 )
-from console.deploy import builder, engine as deploy_engine, history, manual
+from console.deploy import builder, engine as deploy_engine, history, manual, plan
 from console.docker import containers as docker_containers
 from console.docker.client import get_client, run
 from console.errors import Conflict, Invalid, NotFound, Unavailable
@@ -420,7 +420,7 @@ async def rollback(
             raise Conflict(problem)
         raise Invalid(problem)
 
-    deployment = history.clone(target, f"rollback to {target.sha[:7]}")
+    deployment = history.clone(target, f"rollback to {plan.short_sha(target.sha)}")
     session.add(deployment)
     await deploy_engine.queue(session, deployment)
     return models.Accepted(id=deployment.id, status="queued")
@@ -437,7 +437,7 @@ async def redeploy(
             raise Conflict(problem)
         raise Invalid(problem)
 
-    deployment = history.clone(target, f"redeploy of {target.sha[:7]}")
+    deployment = history.clone(target, f"redeploy of {plan.short_sha(target.sha)}")
     session.add(deployment)
     await deploy_engine.queue(session, deployment)
     return models.Accepted(id=deployment.id, status="queued")

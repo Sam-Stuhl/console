@@ -23,6 +23,22 @@ def test_container_name_uses_short_sha():
     assert plan.container_name("demo", "e5f6a7b0d1c2") == "demo-e5f6a7b"
 
 
+def test_container_name_for_a_manual_tag_is_not_the_tag_prefix():
+    # "manual-bc1c66d" once became "demo-manual-": every manual deploy shared it.
+    name = plan.container_name("demo", "manual-bc1c66d")
+    assert name != "demo-manual-"
+    assert name != plan.container_name("demo", "manual-0000000")
+    assert name == plan.container_name("demo", "manual-bc1c66d")
+    # Label-safe even when the tag is not: a dot would split the router key.
+    assert plan.container_name("demo", "v1.2.3").startswith("demo-")
+    assert "." not in plan.container_name("demo", "v1.2.3")
+
+
+def test_short_sha_shortens_only_git_shas():
+    assert plan.short_sha("e5f6a7b0d1c2e5f6a7b0d1c2e5f6a7b0d1c2e5f6") == "e5f6a7b"
+    assert plan.short_sha("manual-bc1c66d") == "manual-bc1c66d"
+
+
 def test_labels_match_the_runbook():
     labels = plan.build_labels(
         name="app-demo-e5f6a7b",

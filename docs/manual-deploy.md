@@ -162,10 +162,25 @@ and every app container down with it.
 
 ### Publishing
 
-```bash
-git clone --depth 1 https://github.com/<owner>/<app>.git /tmp/<app>-build
-cd /tmp/<app>-build && git rev-parse --short HEAD    # confirm the sha you meant
+The `console` account on the box has no git credentials, so `git clone` of a
+private repo there fails with "could not read Username". Ship the tree from a
+machine that already has the repo instead (found the hard way on 2026-09-05):
 
+```bash
+# On the machine with the checkout. Pipes the tree, not the .git directory.
+git fetch origin
+git rev-parse --short origin/main                    # confirm the sha you meant
+git archive origin/main | ssh mac-mini-console 'mkdir -p /tmp/<app>-build && tar -x -C /tmp/<app>-build'
+```
+
+The alternative is a read-only deploy key for `console` on the box, which
+would make `git clone` work but adds a standing credential for an outage-only
+path. Not done; revisit if this runbook starts running more than once a year.
+
+Then, on the box:
+
+```bash
+cd /tmp/<app>-build
 docker login ghcr.io -u <github-user>                # write:packages PAT, once
 docker buildx build --builder console-manual \
   --platform linux/amd64 --provenance=false \
@@ -186,6 +201,13 @@ docker buildx build --builder console-manual \
 
 The push finishing is the proof. It ends with
 `pushing manifest for ghcr.io/<owner>/<app>:manual-<sha>@sha256:...`.
+
+The tag is what the deployment records as its `sha`, so name it after the
+commit as above. The engine names the container after a commit sha's first
+seven characters; a tag that is not a bare sha (`manual-bc1c66d`) gets a short
+digest of the whole tag as its suffix instead, so the name stays unique per
+tag and safe in a Traefik label. Before that rule, `manual-bc1c66d` was
+sliced to `manual-` and every manual deploy of an app got the same name.
 
 ### Deploying what you published
 
