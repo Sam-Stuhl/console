@@ -4,6 +4,14 @@ Written 2026-09-04. GitHub stopped starting Actions jobs on the account on
 2026-09-05 (billing), which removed the only publish path. Sam's decision: pay
 nothing more, build an Actions-free system instead.
 
+## Status
+
+Phases 1 to 3 are on PR #41 (2026-09-04): tests green, the toggle and the
+button driven in dev. Their milestones on the mini are still open: they need
+the console image shipped by hand and a `write:packages` token in Settings.
+Phases 4 and 5 start after claude-quota and planner have each been built by
+the console on the box.
+
 ## Goal
 
 A push to a project's tracked branch produces a GHCR image and a deployment
