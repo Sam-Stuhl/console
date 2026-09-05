@@ -376,6 +376,27 @@ async def deploy_image(
     )
 
 
+class BuildCreate(BaseModel):
+    ref: str | None = Field(
+        default=None,
+        description="branch, tag, or sha to build; defaults to the project's branch",
+    )
+
+
+@router.post(
+    "/projects/{project}/builds",
+    status_code=202,
+    summary="Build the repo on the box, push the image, and deploy it",
+)
+async def build_project(
+    project: str,
+    body: BuildCreate,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_write),
+) -> models.Accepted:
+    return await service.build_project(session, project, body.ref)
+
+
 @router.post(
     "/projects/{project}/deployments/{deployment_id}/rollback",
     status_code=202,

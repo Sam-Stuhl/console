@@ -192,6 +192,17 @@ async def deploy_image(
 
 
 @server.tool()
+async def build_project(project: str, ref: str | None = None) -> dict:
+    """Build the project's repo on the server, push the image, and deploy it.
+    Requires a write token. This is what a push to the tracked branch does on
+    its own; call it to build a specific ref, or to retry. A build takes
+    minutes, so follow it with get_deployment: the row goes building, queued,
+    deploying, then live or failed, and its log carries the build output."""
+    _require_write()
+    return await _call(service.build_project, project, ref)
+
+
+@server.tool()
 async def rollback_deployment(project: str, deployment_id: str) -> dict:
     """Roll back to an earlier build that served traffic. Requires a write
     token. Creates a fresh deployment; the live app is not touched until the

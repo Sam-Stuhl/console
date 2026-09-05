@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from console import access_paths, appicon, cloudflare, config, domains
 from console.db.models import Project, ProjectHealth
 from console.db.session import get_session
+from console.deploy import builder
 from console.deploy.history import deploy_state
+from console.errors import Conflict, Invalid, Unavailable, Upstream
 from console.schema.console_toml import validate_subdomain_format
 from console.starters import starter_files
 
@@ -47,6 +49,10 @@ class ProjectOut(BaseModel):
     # What CI tags this project's images as, minus the tag: the prefill for the
     # deploy-an-image form, so only a tag has to be typed. Derived, never stored.
     image_hint: str
+
+
+class BuildRequest(BaseModel):
+    ref: str | None = None  # branch, tag, or sha; None means the tracked branch
 
 
 class AccessUpdate(BaseModel):
@@ -169,6 +175,29 @@ async def get_one(
         latest.get(project_id),
         project_id in live,
     )
+
+
+@router.post("/{project_id}/builds", status_code=202)
+async def request_build(
+    project_id: str,
+    body: BuildRequest,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Build the repo at a ref on the box and deploy what comes out. This is
+    what a push used to trigger through GitHub Actions; the ref is resolved
+    through the GitHub connection and the build runs here."""
+    project = await get_project(project_id, session)
+    try:
+        deployment = await builder.request_build(session, project, body.ref)
+    except Invalid as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Conflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Unavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Upstream as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"deployment_id": deployment.id, "status": "building"}
 
 
 @router.put("/{project_id}/access")

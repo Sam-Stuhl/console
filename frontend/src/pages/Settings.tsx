@@ -83,9 +83,10 @@ export default function Settings() {
 
           <CollapsibleSection id="ghcr" title="github packages token">
         <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
-          The console pulls each app&apos;s image from GHCR. A public repo&apos;s
-          image is public; a <UI>private</UI> repo&apos;s image is private and
-          needs a read token. One token covers every private app.
+          The console builds each app&apos;s image on the server, pushes it to
+          GHCR, and pulls it back to deploy. Pushing needs a token with{' '}
+          <UI>write:packages</UI>; pulling a <UI>private</UI> repo&apos;s image
+          needs <UI>read:packages</UI>. One token covers every app.
         </p>
 
         {pullBlocked.length > 0 && (
@@ -109,12 +110,12 @@ export default function Settings() {
               and click <UI>Generate new token (classic)</UI>.
             </>,
             <>
-              Give it a note like <Code>console GHCR read</Code> and an
+              Give it a note like <Code>console GHCR</Code> and an
               expiration (or <UI>No expiration</UI>).
             </>,
             <>
-              Under <UI>Select scopes</UI>, check <UI>read:packages</UI> and
-              nothing else.
+              Under <UI>Select scopes</UI>, check <UI>write:packages</UI>,
+              which selects <UI>read:packages</UI> with it, and nothing else.
             </>,
             <>
               Click <UI>Generate token</UI> and copy it (it starts with{' '}
@@ -131,7 +132,7 @@ export default function Settings() {
         <SettingField
           keyName="ghcr_token"
           label="token"
-          placeholder="ghp_… (read:packages)"
+          placeholder="ghp_… (write:packages)"
           isSet={isSet('ghcr_token')}
         />
       </CollapsibleSection>

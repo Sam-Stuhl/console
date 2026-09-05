@@ -23,9 +23,6 @@ from console.schema.console_toml import ConfigError, parse_console_toml
 
 router = APIRouter(prefix="/hooks")
 
-NON_TERMINAL = ("building", "queued", "deploying")
-
-
 class BuildStarted(BaseModel):
     repo: str
     sha: str
@@ -82,20 +79,6 @@ async def resolve_project(
     return project, None
 
 
-async def find_open_deployment(
-    session: AsyncSession, project_id: str, sha: str
-) -> Deployment | None:
-    return await session.scalar(
-        select(Deployment)
-        .where(
-            Deployment.project_id == project_id,
-            Deployment.sha == sha,
-            Deployment.status.in_(NON_TERMINAL),
-        )
-        .order_by(Deployment.created_at.desc())
-    )
-
-
 @router.post("/build-started")
 async def build_started(
     body: BuildStarted,
@@ -108,7 +91,7 @@ async def build_started(
         return {"ignored": ignore}
 
     # Duplicate deliveries and workflow retries must be harmless
-    existing = await find_open_deployment(session, project.id, body.sha)
+    existing = await plan.find_open_deployment(session, project.id, body.sha)
     if existing is not None:
         existing.run_url = body.run_url or existing.run_url
         await session.commit()
@@ -138,7 +121,7 @@ async def build_finished(
     if ignore:
         return {"ignored": ignore}
 
-    deployment = await find_open_deployment(session, project.id, body.sha)
+    deployment = await plan.find_open_deployment(session, project.id, body.sha)
     if deployment is None:
         # build-started was missed; start the record here
         deployment = Deployment(project_id=project.id, sha=body.sha, status="building")

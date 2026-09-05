@@ -11,7 +11,11 @@ PRIORITY_START."""
 
 import re
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from console import config
+from console.db.models import Deployment
 from console.schema.console_toml import ConsoleConfig
 
 ROUTER_PRIORITY_RE = re.compile(r"^traefik\.http\.routers\.[^.]+\.priority$")
@@ -49,6 +53,26 @@ def validate_image(ref: str) -> str:
     if ":" not in ref[len(image_prefix()) :] or not IMAGE_TAG_RE.match(tag):
         raise ValueError(f'image "{ref}" needs a tag, like "{image_prefix()}app:abc1234"')
     return tag
+
+
+NON_TERMINAL = ("building", "queued", "deploying")
+
+
+async def find_open_deployment(
+    session: AsyncSession, project_id: str, sha: str
+) -> Deployment | None:
+    """The in-flight deployment of this sha, if there is one. Every way of
+    starting a build or deploy checks here first, so a duplicate webhook
+    delivery, a double click, and a poll that fires twice are all harmless."""
+    return await session.scalar(
+        select(Deployment)
+        .where(
+            Deployment.project_id == project_id,
+            Deployment.sha == sha,
+            Deployment.status.in_(NON_TERMINAL),
+        )
+        .order_by(Deployment.created_at.desc())
+    )
 
 
 def container_name(app_name: str, sha: str) -> str:

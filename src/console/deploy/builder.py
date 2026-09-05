@@ -26,8 +26,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from console import alerts, config, github, settings_store
 from console.db.models import Deployment, Project, utcnow
 from console.db.session import SessionLocal
-from console.deploy import engine as deploy_engine
+from console.deploy import engine as deploy_engine, plan
 from console.docker.client import get_client, run
+from console.errors import Conflict, Invalid, Unavailable, Upstream
 from console.schema.console_toml import ConfigError, parse_console_toml
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,46 @@ def image_for(repo: str, sha: str) -> str:
 
 def git_context(repo: str, sha: str) -> str:
     return f"https://github.com/{repo}.git#{sha}"
+
+
+async def request_build(
+    session: AsyncSession, project: Project, ref: str | None = None
+) -> Deployment:
+    """Start a build of a ref (default: the tracked branch). Returns the new
+    row, already in "building" and enqueued. Both the SPA's /api and the
+    machine-facing /v1 call this, and the poll loop does the same thing with
+    a sha it already knows."""
+    git_ref = (ref or project.branch).strip() or project.branch
+    try:
+        token = await github.resolve_token(session)
+        sha, message = await github.GitHub(token).resolve_commit(project.repo, git_ref)
+    except github.GitHubNotConnected as exc:
+        raise Unavailable(str(exc))
+    except github.FileNotFound:
+        raise Invalid(f'no commit "{git_ref}" in {project.repo}')
+    except github.GitHubApiError as exc:
+        raise Upstream(str(exc))
+    return await start_build(session, project, sha, message)
+
+
+async def start_build(
+    session: AsyncSession, project: Project, sha: str, message: str | None
+) -> Deployment:
+    """Create the building row for a sha and enqueue it. Refuses a sha that
+    is already in flight: a second build of it would race the first for the
+    same image tag and the same container name."""
+    open_row = await plan.find_open_deployment(session, project.id, sha)
+    if open_row is not None:
+        raise Conflict(
+            f"{sha[:7]} is already {open_row.status} (deployment {open_row.id})"
+        )
+    deployment = Deployment(
+        project_id=project.id, sha=sha, commit_message=message, status="building"
+    )
+    session.add(deployment)
+    await session.commit()
+    enqueue(deployment.id)
+    return deployment
 
 
 async def run_build(deployment_id: str) -> None:

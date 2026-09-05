@@ -235,6 +235,18 @@ class GitHub:
         except UnicodeDecodeError:
             raise GitHubApiError(f"{path} in {repo} is not text")
 
+    async def resolve_commit(self, repo: str, ref: str) -> tuple[str, str]:
+        """The full sha and message of the commit a ref names. The ref may be
+        a branch, a tag, or a sha (short or full); GitHub resolves all three.
+        Raises FileNotFound when there is no such ref, which is a different
+        thing from GitHub being unhappy."""
+        data = await self._get(f"/repos/{_checked_repo(repo)}/commits/{ref}")
+        sha = data.get("sha") if isinstance(data, dict) else None
+        if not isinstance(sha, str) or not sha:
+            raise GitHubApiError(f'GitHub returned no commit for "{ref}" in {repo}')
+        message = (data.get("commit") or {}).get("message") or ""
+        return sha, message
+
     async def _get(self, path: str, params: dict | None = None):
         try:
             async with httpx.AsyncClient(timeout=config.GITHUB_TIMEOUT) as http:

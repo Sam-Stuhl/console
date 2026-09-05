@@ -30,7 +30,7 @@ ceases to describe anything.
 Create:
 - `src/console/deploy/builder.py`: runs one build container, streams its output into the deployment row, queues the engine on success
 - `src/console/deploy/watcher.py`: the poll loop that turns a new branch head into a building deployment
-- `alembic/versions/a7b8c9d0e1f2_project_auto_build.py`: `projects.auto_build`, `projects.watched_sha`
+- `alembic/versions/d0e1f2a3b4c5_project_auto_build.py`: `projects.auto_build`, `projects.watched_sha`
 - `tests/test_builder.py`, `tests/test_watcher.py`
 
 Modify:
@@ -192,7 +192,7 @@ in GHCR with a single amd64 manifest. Then the same on planner.
 
 ## Phase 3: build on push
 
-- Migration `a7b8c9d0e1f2`, `down_revision = "f6a7b8c9d0e1"`: `auto_build`
+- Migration `d0e1f2a3b4c5`, `down_revision = "c9d0e1f2a3b4"` (the head; `a7b8c9d0e1f2` is already taken by project icon): `auto_build`
   Boolean not null server default `0`, `watched_sha` Text nullable. Model
   columns to match.
 - `watcher.py`: `watch_loop()` sleeps `config.WATCH_INTERVAL = 30` between

@@ -128,6 +128,7 @@ def fake_docker(monkeypatch):
 WRITE_ROUTES = [
     ("post", "/v1/projects"),
     ("post", "/v1/projects/blog/deployments"),
+    ("post", "/v1/projects/blog/builds"),
     ("delete", "/v1/projects/blog"),
     ("put", "/v1/projects/blog/access"),
     ("put", "/v1/projects/blog/domain"),
@@ -431,6 +432,49 @@ async def test_rollback_refuses_the_live_build(client, db, project, write_auth):
     )
     assert res.status_code == 409
     assert "already live" in res.json()["detail"]
+
+
+async def test_build_starts_a_building_row(
+    client, db, project, write_auth, github_http, monkeypatch
+):
+    from conftest import FakeResponse
+    from console import settings_store
+    from console.deploy import builder
+
+    enqueued = []
+    monkeypatch.setattr(builder, "enqueue", enqueued.append)
+    async with db() as session:
+        await settings_store.set_value(session, settings_store.GITHUB_TOKEN, "gho_abc")
+        await session.commit()
+    github_http.routes["/commits/main"] = FakeResponse(
+        {"sha": "b" * 40, "commit": {"message": "hello"}}
+    )
+
+    res = await client.post("/v1/projects/blog/builds", json={}, headers=write_auth)
+
+    assert res.status_code == 202
+    assert res.json()["status"] == "building"
+    assert enqueued == [res.json()["id"]]
+
+
+async def test_build_of_an_in_flight_sha_is_409(
+    client, db, project, write_auth, github_http
+):
+    from conftest import FakeResponse
+    from console import settings_store
+
+    async with db() as session:
+        await settings_store.set_value(session, settings_store.GITHUB_TOKEN, "gho_abc")
+        session.add(Deployment(project_id=project["id"], sha="c" * 40, status="queued"))
+        await session.commit()
+    github_http.routes["/commits/main"] = FakeResponse(
+        {"sha": "c" * 40, "commit": {"message": "hello"}}
+    )
+
+    res = await client.post("/v1/projects/blog/builds", json={}, headers=write_auth)
+
+    assert res.status_code == 409
+    assert "already queued" in res.json()["detail"]
 
 
 async def test_redeploy_refuses_an_in_flight_deployment(

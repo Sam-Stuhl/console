@@ -34,7 +34,7 @@ from console.db.models import (
     ProjectHealth,
     Secret,
 )
-from console.deploy import engine as deploy_engine, history, manual
+from console.deploy import builder, engine as deploy_engine, history, manual
 from console.docker import containers as docker_containers
 from console.docker.client import get_client, run
 from console.errors import Conflict, Invalid, NotFound, Unavailable
@@ -396,6 +396,16 @@ async def deploy_image(
         session, project, image, git_ref, console_toml
     )
     return models.Accepted(id=deployment.id, status="queued")
+
+
+async def build_project(
+    session: AsyncSession, ref: str, git_ref: str | None = None
+) -> models.Accepted:
+    """Build the repo at a ref on the box, push the image, and deploy it.
+    Takes minutes; poll the deployment for progress."""
+    project = await resolve_project(session, ref)
+    deployment = await builder.request_build(session, project, git_ref)
+    return models.Accepted(id=deployment.id, status="building")
 
 
 async def rollback(

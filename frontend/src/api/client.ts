@@ -390,6 +390,15 @@ export const redeployDeployment = (projectId: string, deploymentId: string) =>
     jsonInit('POST'),
   )
 
+// Build the repo at a ref on the server and deploy what comes out. The
+// console does this on its own for a push to the tracked branch; this is the
+// button for a specific ref, or a retry.
+export const requestBuild = (projectId: string, ref?: string) =>
+  request<{ deployment_id: string; status: string }>(
+    `/api/projects/${projectId}/builds`,
+    jsonInit('POST', { ref }),
+  )
+
 // Deploy an image that is already in GHCR, with no build webhook involved.
 // console.toml is read from the repo at `ref` unless one is pasted, which is
 // the fallback for when GitHub cannot be reached.

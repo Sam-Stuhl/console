@@ -283,16 +283,34 @@ free text. Note the scope: an OAuth app can only ask for the coarse `repo`
 scope, so the stored token can read and write your repos. Disconnecting forgets
 the token here; revoke the authorization on GitHub to end it there too.
 
-**GitHub packages token** (pull private app images). A private repo's GHCR
-package is private, so the console needs a read token to pull it:
+**GitHub packages token** (push built images, pull private ones). The console
+builds each app's image on the box and pushes it to GHCR, which needs a write
+token; pulling a private repo's image back needs read:
 
 1. GitHub -> **Settings -> Developer settings -> Personal access tokens ->
-   Tokens (classic) -> Generate new token**. Check only **`read:packages`**.
+   Tokens (classic) -> Generate new token**. Check **`write:packages`**, which
+   selects `read:packages` with it, and nothing else.
 2. Console -> **Settings -> github packages token** -> paste it -> save.
 
-One token covers every private app; public images need nothing. A deploy that
-fails with "unauthorized ... add a GitHub read:packages token in Settings" is
-telling you exactly this.
+One token covers every app. A build that fails with "no GitHub packages token
+in Settings" or a deploy that fails with "unauthorized ... add a GitHub
+read:packages token" is telling you exactly this.
+
+**The builder** (one-time, as the `console` account on the box). Builds run
+inside a BuildKit container the host creates once with memory and CPU caps,
+so a build can never starve the apps it serves next to. The console attaches
+to it and never creates it, so a missing builder fails a build with this step
+named:
+
+```bash
+docker buildx create --name console-build --driver docker-container \
+  --driver-opt memory=2g --driver-opt cpu-quota=200000 --driver-opt cpu-period=100000
+docker buildx inspect --bootstrap console-build
+```
+
+That starts `buildx_buildkit_console-build0`, restart policy `unless-stopped`,
+which is also where the layer cache lives. Every build ends with a prune that
+keeps the cache under 5 GB.
 
 **Cloudflare Access** (gate an app's hostname with a login). A project's
 **access** toggle then creates or removes a self-hosted Access app for
