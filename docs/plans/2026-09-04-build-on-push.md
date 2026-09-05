@@ -6,11 +6,13 @@ nothing more, build an Actions-free system instead.
 
 ## Status
 
-Phases 1 to 3 are on PR #41 (2026-09-04): tests green, the toggle and the
-button driven in dev. Their milestones on the mini are still open: they need
-the console image shipped by hand and a `write:packages` token in Settings.
-Phases 4 and 5 start after claude-quota and planner have each been built by
-the console on the box.
+Phases 1 to 3 are on PR #41 and running on the mini since 2026-09-05 02:41
+(console image `manual-83952f7`, shipped by hand). Milestones met the same
+night: "build now" built notion-sync in 45 s and planner in 65 s, both live;
+then planner #439 merged at 02:50:00 and the watcher opened its build at
+02:50:32 with no button press and no Actions run, live at 02:51:22.
+claude-quota's build fails on purpose until its repo carries a console.toml.
+Phases 4 and 5 can start.
 
 ## Goal
 
