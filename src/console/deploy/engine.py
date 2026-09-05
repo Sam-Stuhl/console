@@ -369,7 +369,7 @@ async def _fail(session: AsyncSession, deployment: Deployment, reason: str) -> N
         await alerts.send(
             session,
             f"{name} deploy failed",
-            f"{deployment.sha[:7]}: {reason}",
+            f"{plan.short_sha(deployment.sha)}: {reason}",
             tags=["rotating_light"],
             priority="high",
         )
