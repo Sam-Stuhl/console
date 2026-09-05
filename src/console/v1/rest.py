@@ -316,8 +316,8 @@ async def list_console_access_paths(
     session: AsyncSession = Depends(get_session),
     _=Depends(require_token),
 ) -> models.AccessPathList:
-    """The console's own machine paths: /hooks for CI, /v1 and /mcp for callers
-    like this one."""
+    """The console's own machine paths: /v1 and /mcp, for callers like this
+    one."""
     return await service.list_access_paths(session, None)
 
 
@@ -374,6 +374,27 @@ async def deploy_image(
     return await service.deploy_image(
         session, project, body.image, body.ref, body.console_toml
     )
+
+
+class BuildCreate(BaseModel):
+    ref: str | None = Field(
+        default=None,
+        description="branch, tag, or sha to build; defaults to the project's branch",
+    )
+
+
+@router.post(
+    "/projects/{project}/builds",
+    status_code=202,
+    summary="Build the repo on the box, push the image, and deploy it",
+)
+async def build_project(
+    project: str,
+    body: BuildCreate,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_write),
+) -> models.Accepted:
+    return await service.build_project(session, project, body.ref)
 
 
 @router.post(

@@ -6,7 +6,7 @@ operator; it authenticates nobody to the console, which is still Cloudflare
 Access's job alone. These routes sit under /api like any other, behind that
 same gate, and that includes the callback: GitHub redirects the operator's
 BROWSER to it, so it arrives carrying their Access session. Nothing here needs
-an Access bypass, unlike /hooks, which GitHub's servers call directly.
+an Access bypass: nothing GitHub's servers call reaches this console.
 
 The connection is a plain authorization-code redirect. The console hands the
 browser to GitHub, GitHub hands it back with a code, and the console trades the

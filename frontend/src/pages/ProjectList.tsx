@@ -36,9 +36,9 @@ export default function ProjectList() {
         <div className="border-t border-base-300 py-10 text-center">
           <p className="font-mono text-sm text-muted">no projects yet</p>
           <p className="mx-auto mt-2 max-w-md font-mono text-xs text-faint">
-            a project registers a repo so the deploy pipeline can find it. the
-            repo needs a console.toml and the deploy workflow stub, then every
-            push to main deploys here.
+            a project registers a repo so the console can build it. the repo
+            needs a console.toml and a Dockerfile, then every push to main is
+            built here and deployed.
           </p>
         </div>
       )}

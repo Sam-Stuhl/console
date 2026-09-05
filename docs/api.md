@@ -97,6 +97,7 @@ subdomain, so `/v1/projects/blog` works as well as the UUID.
 | `GET /v1/projects/{project}/commands[/{id}]` | one-off command history and output |
 | `GET /v1/projects/{project}/access/paths`, `GET /v1/access/paths` | which paths skip the Access login, for an app or for the console |
 | `GET /v1/backups` | backup status and history |
+| `POST /v1/projects/{project}/builds` | build the repo on the box, push the image, and deploy it |
 | `POST /v1/projects/{project}/deployments` | deploy an image that already exists in the registry |
 | `POST /v1/projects/{project}/deployments/{id}/rollback` | roll back to a build that served traffic |
 | `POST /v1/projects/{project}/deployments/{id}/redeploy` | re-run a build's image and config |
@@ -155,10 +156,11 @@ with your console's real URL.
 The server ships instructions telling an agent how to work the console: start
 at `get_system`, then `list_projects`, and the usual path for diagnosing a sick
 app (`get_project` -> `get_container` -> `get_app_logs` -> `list_deployments`).
-Twenty-four tools, named for what they do: `get_system`, `list_projects`,
+Twenty-five tools, named for what they do: `get_system`, `list_projects`,
 `get_project`, `list_deployments`, `get_deployment`, `get_container`,
 `get_app_logs`, `list_secret_keys`, `list_commands`, `get_command`,
-`get_backups`, `list_access_paths`, and the write tools `deploy_image`,
+`get_backups`, `list_access_paths`, and the write tools `build_project`,
+`deploy_image`,
 `rollback_deployment`, `redeploy`, `control_app`, `run_command`,
 `create_project`, `delete_project`, `set_project_domain`, `set_project_access`,
 `open_access_path`, `close_access_path`, `trigger_backup`.

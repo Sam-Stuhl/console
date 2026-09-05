@@ -50,6 +50,7 @@ export interface Project {
   icon_fetched_at: string | null // cache-buster for the icon URL
   deploy_status: string | null // latest deployment status (queued/building/deploying/live/failed/…)
   is_live: boolean // a deployment is currently serving, independent of the monitor ping
+  auto_build: boolean // a push to the tracked branch is built on the server and deployed
   image_hint: string // what CI tags this project's images as, minus the tag
 }
 
@@ -349,7 +350,6 @@ export interface TomlValidation {
 export interface StarterFiles {
   console_toml: string
   dockerfile: string
-  workflow: string
 }
 
 export const importSecrets = (projectId: string, text: string) =>
@@ -390,7 +390,21 @@ export const redeployDeployment = (projectId: string, deploymentId: string) =>
     jsonInit('POST'),
   )
 
-// Deploy an image that is already in GHCR, with no build webhook involved.
+// Build on push, on or off. Enabling takes the current branch head as
+// already seen, so only pushes from now on are built.
+export const updateAutoBuild = (id: string, enabled: boolean) =>
+  request<Project>(`/api/projects/${id}/auto-build`, jsonInit('PUT', { enabled }))
+
+// Build the repo at a ref on the server and deploy what comes out. The
+// console does this on its own for a push to the tracked branch; this is the
+// button for a specific ref, or a retry.
+export const requestBuild = (projectId: string, ref?: string) =>
+  request<{ deployment_id: string; status: string }>(
+    `/api/projects/${projectId}/builds`,
+    jsonInit('POST', { ref }),
+  )
+
+// Deploy an image that is already in GHCR, with no build involved.
 // console.toml is read from the repo at `ref` unless one is pasted, which is
 // the fallback for when GitHub cannot be reached.
 export const deployImage = (

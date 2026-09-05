@@ -97,17 +97,19 @@ binary). Inspect instead:
 docker inspect app-demo-e5f6a7b --format '{{range .Config.Env}}{{println .}}{{end}}'
 ```
 
-## Publishing an image by hand (when CI is unavailable)
+## Publishing an image by hand (when the console cannot)
 
-Everything above assumes the image is already in GHCR. Normally it is: each app
-repo's `deploy.yml` calls the reusable build workflow, and that is the *only*
-publish path. When GitHub Actions is down, that path is gone and nothing can be
-deployed at all. This section is the fallback, verified end to end on the box on
-2026-08-26.
+Everything above assumes the image is already in GHCR. Normally the console
+puts it there: "build now" on a project page, or a push to the tracked branch,
+builds the repo on the box and pushes the result (see
+`docs/plans/2026-09-04-build-on-push.md`). This section is for when the
+console itself is down or is what is being fixed. It was the only fallback
+when GitHub Actions was the publish path, and was verified end to end on the
+box on 2026-08-26.
 
-It does not soften "no building on the server". The console still only pulls and
-runs, none of this is wired into the engine, and nothing calls it automatically.
-It is an operator running `docker` by hand during an outage.
+The console's build uses a separate builder, `console-build`, created during
+server setup with resource caps. The hand path below uses its own,
+`console-manual`, so the two never share state.
 
 ### Why the obvious thing does not work
 

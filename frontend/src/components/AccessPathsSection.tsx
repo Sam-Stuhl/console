@@ -7,11 +7,11 @@ import {
   type AccessPath,
 } from '../api/client'
 
-// Paths on the console's own hostname that something depends on. /hooks is the
-// one CI calls to report a finished build, so closing it does not just gate a
-// path: every deploy silently gets a login page until it is opened again.
+// Paths on the console's own hostname that something depends on. Closing one
+// does not just gate a path: whatever calls it gets a login page instead.
 const LOAD_BEARING: Record<string, string> = {
-  hooks: 'CI reports finished builds here. Closing it stops every deploy until it is opened again.',
+  v1: 'Scripts and agents call the API here. Closing it cuts them off until it is opened again.',
+  mcp: 'AI agents connect here. Closing it cuts them off until it is opened again.',
 }
 
 /**
@@ -140,7 +140,7 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
           <input
             value={newPath}
             onChange={(e) => setNewPath(e.target.value)}
-            placeholder={projectId ? '/api' : '/hooks'}
+            placeholder={projectId ? '/api' : '/v1'}
             className="w-44 bg-transparent pr-2 font-mono text-xs outline-none placeholder:text-faint"
           />
         </label>
@@ -175,7 +175,7 @@ export default function AccessPathsSection({ projectId }: { projectId: string | 
       <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
         {projectId
           ? 'Whatever the app checks itself is then the only thing in front of that path, so open one only where the app authenticates its own callers.'
-          : 'The machine paths of this console: hooks for CI deploys, v1 and mcp for scripts and agents. Each authenticates its own callers with a token, which is why it can skip the login. /api cannot be opened, since it has no authentication of its own.'}{' '}
+          : 'The machine paths of this console: v1 and mcp, for scripts and agents. Each authenticates its own callers with a token, which is why it can skip the login. /api cannot be opened, since it has no authentication of its own.'}{' '}
         Cloudflare rate limiting is a separate permission this console does not
         hold, so add a rate limit for an open path in the Cloudflare dashboard.
       </p>

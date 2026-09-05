@@ -13,7 +13,7 @@ function isConfigFailure(err: unknown): boolean {
 }
 
 /**
- * Deploy an image that is already in GHCR, without a build webhook. This is the
+ * Deploy an image that is already in GHCR, without a build. This is the
  * way in for a project whose CI has never run or is broken: the artifact can be
  * built and pushed and still have no path to the server otherwise.
  *

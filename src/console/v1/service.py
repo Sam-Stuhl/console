@@ -34,7 +34,7 @@ from console.db.models import (
     ProjectHealth,
     Secret,
 )
-from console.deploy import engine as deploy_engine, history, manual, plan
+from console.deploy import builder, engine as deploy_engine, history, manual, plan
 from console.docker import containers as docker_containers
 from console.docker.client import get_client, run
 from console.errors import Conflict, Invalid, NotFound, Unavailable
@@ -91,6 +91,7 @@ def _project(
         health=health,
         deploy_status=deploy_status,
         is_live=is_live,
+        auto_build=project.auto_build,
         # GHCR paths are lowercase, which is what the build workflow pushes to.
         image_hint=f"ghcr.io/{project.repo.lower()}:",
         created_at=project.created_at,
@@ -389,13 +390,23 @@ async def deploy_image(
     console_toml: str | None = None,
 ) -> models.Accepted:
     """Deploy an image that already exists in the registry. Nothing is built
-    here; the console pulls what CI, or a laptop, already pushed. The
-    console.toml is read from the repo unless one is pasted."""
+    here; the console pulls what a laptop, or an earlier build, already
+    pushed. The console.toml is read from the repo unless one is pasted."""
     project = await resolve_project(session, ref)
     deployment = await manual.deploy_image(
         session, project, image, git_ref, console_toml
     )
     return models.Accepted(id=deployment.id, status="queued")
+
+
+async def build_project(
+    session: AsyncSession, ref: str, git_ref: str | None = None
+) -> models.Accepted:
+    """Build the repo at a ref on the box, push the image, and deploy it.
+    Takes minutes; poll the deployment for progress."""
+    project = await resolve_project(session, ref)
+    deployment = await builder.request_build(session, project, git_ref)
+    return models.Accepted(id=deployment.id, status="building")
 
 
 async def rollback(

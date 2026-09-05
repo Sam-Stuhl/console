@@ -183,12 +183,23 @@ async def deploy_image(
     console_toml: str | None = None,
 ) -> dict:
     """Deploy an image that already exists in the registry. Requires a write
-    token. Nothing is built: the console pulls what CI, or a laptop, already
-    pushed, so use this when CI is broken or was never set up. image is a full
+    token. Nothing is built: the console pulls what a laptop, or an earlier
+    build, already pushed; build_project is the usual way. image is a full
     ref including a tag; get_project's image_hint gives you the prefix. The
     console.toml is read from the repo unless you pass one."""
     _require_write()
     return await _call(service.deploy_image, project, image, ref, console_toml)
+
+
+@server.tool()
+async def build_project(project: str, ref: str | None = None) -> dict:
+    """Build the project's repo on the server, push the image, and deploy it.
+    Requires a write token. This is what a push to the tracked branch does on
+    its own; call it to build a specific ref, or to retry. A build takes
+    minutes, so follow it with get_deployment: the row goes building, queued,
+    deploying, then live or failed, and its log carries the build output."""
+    _require_write()
+    return await _call(service.build_project, project, ref)
 
 
 @server.tool()
@@ -301,11 +312,9 @@ async def open_access_path(path: str, project: str | None = None) -> dict:
 @server.tool()
 async def close_access_path(path: str, project: str | None = None) -> str:
     """Put the Access login back in front of one path. Requires a write token.
-    Addressed by the path itself, as list_access_paths reports it.
-
-    Some paths are load-bearing: closing hooks on the console's own hostname
-    stops every deploy, because CI reports finished builds there and a runner
-    cannot log in. Confirm with the operator before closing that one."""
+    Addressed by the path itself, as list_access_paths reports it. Closing
+    v1 or mcp on the console's own hostname cuts off callers like this one,
+    so confirm with the operator before closing those."""
     _require_write()
     await _call(service.close_access_path, project, path)
     return f"closed {path}"

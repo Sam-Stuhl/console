@@ -439,7 +439,7 @@ says what it says.
 
 **No long-lived shared secret.** Access auth is your browser SSO, cached as a
 short-lived token under `~/.cloudflared` on your workstation. There is no service token,
-which is consistent with the same call made for `/hooks` (see CLAUDE.md).
+which is the same stance the console takes everywhere (see CLAUDE.md).
 
 **What to rotate, and when.**
 

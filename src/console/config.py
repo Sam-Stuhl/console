@@ -14,8 +14,8 @@ HEALTH_TIMEOUT_CAP = 300
 # Host rule suffix: app.localhost in dev, app.<your-domain> in prod
 DOMAIN = os.environ.get("CONSOLE_DOMAIN", "localhost")
 
-# The console's own hostname: where its UI and the machine surfaces (/hooks,
-# /v1, /mcp) are served. compose.prod.yaml routes console.<domain> here, so
+# The console's own hostname: where its UI and the machine surfaces (/v1,
+# /mcp) are served. compose.prod.yaml routes console.<domain> here, so
 # that is the default; override it only if you serve the console elsewhere.
 # Used to name the Access apps that bypass the login on those paths.
 HOSTNAME = os.environ.get("CONSOLE_HOSTNAME", "") or f"console.{DOMAIN}"
@@ -29,22 +29,14 @@ CF_API_TOKEN_FILE = os.environ.get("CONSOLE_CF_API_TOKEN_FILE", "/run/secrets/cf
 CF_ACCOUNT_ID = os.environ.get("CONSOLE_CF_ACCOUNT_ID", "")
 CF_API_BASE = os.environ.get("CONSOLE_CF_API_BASE", "https://api.cloudflare.com/client/v4")
 
-# GitHub Actions OIDC. The app repos' workflows must request their token
-# with audience=console; GitHub's default audience is the owner URL, which
-# we deliberately do not use so the value is stable and greppable.
-OIDC_ISSUER = "https://token.actions.githubusercontent.com"
-OIDC_JWKS_URL = OIDC_ISSUER + "/.well-known/jwks"
-OIDC_AUDIENCE = os.environ.get("CONSOLE_OIDC_AUDIENCE", "console")
-# The GitHub account whose repos are allowed to deploy to this console. There
-# is deliberately no default: a console that trusts any owner is a console
-# anyone can deploy to, so an unset value rejects every webhook rather than
-# waving them through.
+# The GitHub account whose images this console may deploy: the only GHCR
+# namespace an image ref is accepted from, and the login user for pushes and
+# private pulls. There is deliberately no default: a console that trusts any
+# namespace is a console anyone can deploy to, so an unset value refuses every
+# image rather than waving them through. The name dates from when a GitHub
+# Actions OIDC token was verified against it; the env var is kept so an
+# existing .env keeps working.
 OIDC_OWNER = os.environ.get("CONSOLE_OIDC_OWNER", "")
-
-# The repo holding the reusable build workflow that app repos call. Defaults to
-# the upstream project, which is what a fresh install wants; point it at your
-# own fork if you maintain one.
-WORKFLOW_REPO = os.environ.get("CONSOLE_WORKFLOW_REPO", "Sam-Stuhl/console")
 
 # Outbound GitHub access: listing the operator's repos when registering a
 # project, and reading a repo's console.toml for a deploy CI did not drive.
@@ -124,5 +116,17 @@ ICON_MAX_BYTES = 256 * 1024  # refuse anything larger than this
 # Reaper timeouts for stuck deployments, in seconds
 REAPER_INTERVAL = 60
 BUILD_TIMEOUT = 30 * 60
+
+# Building app images on the box (docs/plans/2026-09-04-build-on-push.md).
+# The build runs in a one-shot docker CLI container that attaches to a
+# BuildKit builder the host created with memory and CPU caps; the console
+# never creates that builder, so a missing one fails the build with the
+# setup step named. BUILD_TIMEOUT above bounds the whole build.
+BUILD_IMAGE = "docker:28-cli"
+BUILD_BUILDER = "console-build"
+BUILD_LOG_MAX = 512 * 1024  # stored build output cap per deployment, bytes
+# How often the watcher asks GitHub for each auto-build project's branch head.
+# One request per project per sweep, against a 5000/hour authenticated limit.
+WATCH_INTERVAL = 30
 DEPLOY_TIMEOUT_MARGIN = 10 * 60
 QUEUED_TIMEOUT = 60 * 60

@@ -2,8 +2,8 @@
 
 Two scopes, one implementation: /api/projects/{id}/access/paths opens a path on
 that app's hostname, /api/access/paths opens one on the console's own. The
-console scope exists because its machine surfaces (/hooks for CI, /v1 and /mcp
-for scripts and agents) need the same hole, and setting it up by hand in the
+console scope exists because its machine surfaces (/v1 and /mcp, for scripts
+and agents) need the same hole, and setting it up by hand in the
 Cloudflare dashboard is the step people miss.
 
 What a bypass costs is in access_paths' docstring; the UI says it too, at the
@@ -121,8 +121,8 @@ async def list_console_paths(
 async def add_console_path(
     body: PathCreate, session: AsyncSession = Depends(get_session)
 ) -> AccessPathOut:
-    """Open one path on the console's own hostname: /hooks for CI, /v1 or /mcp
-    for scripts and agents. /api is refused; see access_paths."""
+    """Open one path on the console's own hostname: /v1 or /mcp for scripts
+    and agents. /api is refused; see access_paths."""
     return await _add(session, None, config.HOSTNAME, body.path)
 
 

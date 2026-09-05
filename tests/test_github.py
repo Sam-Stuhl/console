@@ -239,3 +239,25 @@ async def test_read_file_rejects_a_directory(http):
 
     with pytest.raises(github.GitHubApiError, match="not a readable file"):
         await github.GitHub("gho_abc").read_file("o/r", "console.toml", "main")
+
+
+async def test_resolve_commit_returns_sha_and_message(github_http):
+    github_http.routes["/commits/main"] = FakeResponse(
+        {"sha": "d" * 40, "commit": {"message": "first line\n\nbody"}}
+    )
+    sha, message = await github.GitHub("tok").resolve_commit("example-owner/demo", "main")
+    assert sha == "d" * 40
+    assert message == "first line\n\nbody"
+    assert github_http.requests[0][1].endswith("/repos/example-owner/demo/commits/main")
+
+
+async def test_resolve_commit_missing_ref_is_not_found(github_http):
+    github_http.routes["/commits/gone"] = FakeResponse({"message": "Not Found"}, 404)
+    with pytest.raises(github.FileNotFound):
+        await github.GitHub("tok").resolve_commit("example-owner/demo", "gone")
+
+
+async def test_resolve_commit_without_a_sha_is_an_api_error(github_http):
+    github_http.routes["/commits/odd"] = FakeResponse({"commit": {}})
+    with pytest.raises(github.GitHubApiError):
+        await github.GitHub("tok").resolve_commit("example-owner/demo", "odd")

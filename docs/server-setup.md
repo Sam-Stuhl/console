@@ -2,8 +2,8 @@
 
 Stand up the console on your server, behind Cloudflare, with the deploy
 pipeline live. When this is done, `console.<your-domain>` shows the
-console (gated by Cloudflare Access), GitHub can POST to `/hooks`, and
-pushing an app repo deploys it. Once it is up, **Settings** also configures the
+console (gated by Cloudflare Access) and pushing an app repo builds and
+deploys it. Once it is up, **Settings** also configures the
 operational extras in the browser, no files or restarts: private-image pulls,
 the access-toggle credentials, off-box backups, uptime alerts, extra domains,
 and credential-expiry warnings (steps 9-10).
@@ -119,33 +119,26 @@ The tunnel is the only way in; nothing is exposed on the server or your LAN.
    TUNNEL_TOKEN=paste-the-token-here
    ```
 
-## 4. Cloudflare Access: protect the UI, bypass the webhooks
+## 4. Cloudflare Access: protect the UI
 
-GitHub's runners cannot log in to Access, and the `/hooks` endpoints
-authenticate themselves with a signed GitHub OIDC token, so that path must
-bypass Access while everything else requires your login.
+Nothing on GitHub's side ever calls the console (it polls GitHub itself), so
+the whole hostname can sit behind your login.
 
-Zero Trust -> **Access -> Applications**. Create **two** self-hosted apps
-(Cloudflare evaluates the more specific path first). App B has to be made here;
-App A can be too, or you can let the console make it for you once it is running
-and holds a Cloudflare token (step 9): **Settings -> cloudflare access -> this
-console's paths without the login**, where the same three machine paths are one
-field each. Either way, the shape is:
+Zero Trust -> **Access -> Applications**. Create one self-hosted app:
 
-- **App A, the webhooks**: hostname `console.<your-domain>`, path `hooks`.
-  One policy, action **Bypass**, include **Everyone**. (Safe: the console
-  rejects any call whose OIDC token is not owned by the account in
-  `CONSOLE_OIDC_OWNER`.)
 - **App B, the console UI**: hostname `console.<your-domain>`, no path.
   One policy, action **Allow**, include your email.
 
 If you want scripts or AI agents to reach the console (see `docs/api.md`), add
-one Bypass app per machine path, the same shape as App A (or add them in
-Settings, which refuses `/api`: the console's own write surface has no
-authentication of its own, so a bypass there would hand the console over):
+one Bypass app per machine path (Cloudflare evaluates the more specific path
+first), or let the console make them once it is running and holds a Cloudflare
+token (step 9): **Settings -> cloudflare access -> this console's paths without
+the login**. Settings refuses `/api`: the console's own write surface has no
+authentication of its own, so a bypass there would hand the console over.
 
-- **App A2**: hostname `console.<your-domain>`, path `v1`
-- **App A3**: hostname `console.<your-domain>`, path `mcp`
+- **App A2**: hostname `console.<your-domain>`, path `v1`, one policy,
+  action **Bypass**, include **Everyone**
+- **App A3**: hostname `console.<your-domain>`, path `mcp`, the same
 
 Both authenticate themselves with a console-issued API token, which is why they
 can bypass Access. Understand the trade before you add them: **these two paths
@@ -169,19 +162,14 @@ while everything else on that hostname still asks for a login. Open a path only
 where the app authenticates its own callers, and give it a rate limit below: the
 console's Cloudflare token deliberately cannot write WAF rules.
 
-Then add a rate limit so nobody can flood `/hooks` with wrong-owner calls
-(each costs the console a token verification):
+If you added the `v1` and `mcp` bypasses above, give them a rate limit so
+nobody can flood them with bad-token calls:
 
 - Security -> **WAF -> Rate limiting rules -> Create**:
   - When: `hostname` equals `console.<your-domain>` **and** URI path starts
-    with `/hooks`
-  - Then: **Block**, at **20 requests per 1 minute** per client IP.
-  (Far above your real volume; tune later if needed.)
-
-If you added the `v1` and `mcp` bypasses above, give them a rate limit too:
-same rule shape, URI path starting with `/v1` or `/mcp`, blocking at a few
-hundred requests per minute. An agent polling a deploy is chatty, so keep this
-looser than the `/hooks` limit.
+    with `/v1` (a second rule for `/mcp`)
+  - Then: **Block**, at a few hundred requests per minute per client IP. An
+    agent polling a deploy is chatty, so do not set this low.
 
 ## 5. Make the console image pullable
 
@@ -217,26 +205,18 @@ for the uvicorn "Application startup complete" line.
   Expect `200`.
 - **Through the tunnel:** open `https://console.<your-domain>`. Cloudflare
   Access prompts for your login, then the console loads.
-- **The webhook path bypasses Access:** the webhooks are POST-only, so send
-  a POST (a GET has no route and falls through to the SPA, returning `200`
-  index.html, which tells you nothing):
-  ```
-  curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Content-Type: application/json" -d "{}" https://console.<your-domain>/hooks/build-started
-  ```
-  Expect `401` (the console reached it and rejected it for no token). If you
-  get a `302` to an Access **login page** instead, App A's path/Bypass is
-  misconfigured (its policy action must be **Bypass**, include **Everyone**).
 
 ## 8. First real deploy
 
 1. In the console UI: **projects -> new**, register the app (repo, subdomain).
-2. In the app repo, add the three files from the project's "next steps"
-   checklist: `console.toml`, `Dockerfile`, `.github/workflows/deploy.yml`.
+2. In the app repo, add the two files from the project's "next steps"
+   checklist: `console.toml` and `Dockerfile`.
 3. Add the app's secrets in the console.
-4. **Private app images need a pull token.** In the console's **Settings**
-   page, add a GitHub `read:packages` token once (see step 9). One token
-   covers every private app; public images need nothing.
-5. Push the app repo. Watch the deploy appear and go live in the console.
+4. **The console needs a packages token to push what it builds.** In the
+   console's **Settings** page, add a GitHub `write:packages` token once (see
+   step 9). One token covers every app.
+5. Press "build main now" on the project page, or switch on "build on push"
+   and push the app repo. Watch the deploy appear and go live in the console.
 
 **No Actions, or a broken build?** You do not need any of this to deploy an
 image that already exists. On the project page, under **deployments**, use
@@ -273,8 +253,7 @@ console, which is still Cloudflare Access's job alone.
    straight back, and the page says who it connected as.
 
 The callback needs no Access bypass: GitHub redirects your *browser* to it, so
-it arrives with your Access session, unlike `/hooks`, which GitHub's servers
-call directly.
+it arrives with your Access session.
 
 There is deliberately no default client id: this is a public project, and a
 shipped one would make its author the OAuth trust anchor for every install.
@@ -283,16 +262,34 @@ free text. Note the scope: an OAuth app can only ask for the coarse `repo`
 scope, so the stored token can read and write your repos. Disconnecting forgets
 the token here; revoke the authorization on GitHub to end it there too.
 
-**GitHub packages token** (pull private app images). A private repo's GHCR
-package is private, so the console needs a read token to pull it:
+**GitHub packages token** (push built images, pull private ones). The console
+builds each app's image on the box and pushes it to GHCR, which needs a write
+token; pulling a private repo's image back needs read:
 
 1. GitHub -> **Settings -> Developer settings -> Personal access tokens ->
-   Tokens (classic) -> Generate new token**. Check only **`read:packages`**.
+   Tokens (classic) -> Generate new token**. Check **`write:packages`**, which
+   selects `read:packages` with it, and nothing else.
 2. Console -> **Settings -> github packages token** -> paste it -> save.
 
-One token covers every private app; public images need nothing. A deploy that
-fails with "unauthorized ... add a GitHub read:packages token in Settings" is
-telling you exactly this.
+One token covers every app. A build that fails with "no GitHub packages token
+in Settings" or a deploy that fails with "unauthorized ... add a GitHub
+read:packages token" is telling you exactly this.
+
+**The builder** (one-time, as the `console` account on the box). Builds run
+inside a BuildKit container the host creates once with memory and CPU caps,
+so a build can never starve the apps it serves next to. The console attaches
+to it and never creates it, so a missing builder fails a build with this step
+named:
+
+```bash
+docker buildx create --name console-build --driver docker-container \
+  --driver-opt memory=2g --driver-opt cpu-quota=200000 --driver-opt cpu-period=100000
+docker buildx inspect --bootstrap console-build
+```
+
+That starts `buildx_buildkit_console-build0`, restart policy `unless-stopped`,
+which is also where the layer cache lives. Every build ends with a prune that
+keeps the cache under 5 GB.
 
 **Cloudflare Access** (gate an app's hostname with a login). A project's
 **access** toggle then creates or removes a self-hosted Access app for

@@ -69,9 +69,8 @@ services:
       # - cf_api_token
     environment:
       CONSOLE_DOMAIN: ${CONSOLE_DOMAIN:?set CONSOLE_DOMAIN in .env (your base domain, e.g. example.com)}
-      # The GitHub account allowed to deploy here. Unset rejects every webhook.
+      # The GitHub account whose images may deploy here. Unset refuses every image.
       CONSOLE_OIDC_OWNER: ${CONSOLE_OIDC_OWNER:?set CONSOLE_OIDC_OWNER in .env (your GitHub account name)}
-      CONSOLE_OIDC_AUDIENCE: console
       # Optional. The GitHub connection's client id is normally saved in
       # Settings, in the browser; set it here instead if you would rather keep
       # it in the compose file. See docs/server-setup.md step 9.

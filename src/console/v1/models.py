@@ -26,6 +26,7 @@ class Project(BaseModel):
     health: str  # live liveness from the monitor: up | down | unknown
     deploy_status: str | None  # latest deployment: queued|building|deploying|live|failed|…
     is_live: bool  # a deployment is serving, independent of the monitor ping
+    auto_build: bool  # a push to the tracked branch is built on the box and deployed
     # What CI tags this project's images as, minus the tag: what to prefix a
     # tag with when deploying an image. Derived, never stored.
     image_hint: str

@@ -47,7 +47,7 @@ def enqueue(deployment_id: str) -> None:
 async def queue(session: AsyncSession, deployment: Deployment) -> None:
     """Make this row the project's one queued deployment and start it.
 
-    Every way into the pipeline ends here: the build webhook, rollback,
+    Every way into the pipeline ends here: a finished build, rollback,
     redeploy, and deploying an image by hand. They differ in where the image
     and config came from, never in how a deploy is started."""
     # Flush first: a row created in this request needs its id assigned before

@@ -131,6 +131,7 @@ export default function ProjectDetail() {
             projectId={id}
             branch={project.branch}
             imageHint={project.image_hint}
+            autoBuild={project.auto_build}
           />
         )}
       </Section>

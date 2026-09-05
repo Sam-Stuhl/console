@@ -1,9 +1,8 @@
-"""Deploying an image that already exists, with no build webhook involved.
+"""Deploying an image that already exists, with no build involved.
 
-Nothing is built here: the console pulls what CI, or a laptop, already pushed.
-This is the path for a project whose CI has never run or is broken, since build
-and deploy are separate concerns and an image sitting in a registry should be
-reachable without Actions being healthy.
+Nothing is built here: the console pulls what a laptop, or an earlier build,
+already pushed. Build and deploy are separate concerns, and an image sitting
+in a registry should be deployable without a build.
 
 Lives here rather than in a route body because both the SPA's /api and the
 machine-facing /v1 offer it, and the rules (what counts as a valid image, where
@@ -63,7 +62,7 @@ async def deploy_image(
     config_snapshot = await resolve_config(session, project, git_ref, console_toml)
 
     # The tag identifies the build, the way a commit sha does for a CI deploy:
-    # our own workflow tags with the short sha, so those line up, and any other
+    # our own builds tag with the short sha, so those line up, and any other
     # tag is kept verbatim so history reads as what was actually deployed.
     deployment = Deployment(
         project_id=project.id,

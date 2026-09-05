@@ -1,6 +1,6 @@
 # console
 
-A single-tenant, self-hosted PaaS control plane for your own hardware. It is a FastAPI + React web console that registers projects, receives build webhooks, pulls images, runs zero-downtime deploys behind Traefik, and keeps a deploy history you can roll back from. Think of a small Render or Railway that you own end to end, running on a spare machine.
+A single-tenant, self-hosted PaaS control plane for your own hardware. It is a FastAPI + React web console that registers projects, builds their images on a push, runs zero-downtime deploys behind Traefik, and keeps a deploy history you can roll back from. Think of a small Render or Railway that you own end to end, running on a spare machine.
 
 The goal is one place to run everything about a project that isn't writing code: deploy, roll back, read logs, manage secrets and access, run a one-off command, or open a shell into a running app. Centralize the setup so hosting a new site is a registration, not a runbook.
 
@@ -9,7 +9,7 @@ The goal is one place to run everything about a project that isn't writing code:
 ## What it does
 
 - **Projects**: register an app, give it a `console.toml`, and manage it from one place.
-- **Deploys**: GitHub Actions builds an image and pushes it to GHCR; a webhook tells the console, which pulls the image and runs it. The new container starts alongside the old one and only takes traffic after it passes a health check.
+- **Deploys**: a push to the tracked branch is noticed within thirty seconds; the console builds the image on the server inside a resource-capped BuildKit builder, pushes it to GHCR, pulls it back, and runs it. The new container starts alongside the old one and only takes traffic after it passes a health check. Nothing builds on GitHub, so no CI minutes are involved.
 - **Zero-downtime swaps**: routing is handled by Traefik priority labels, so the live container keeps serving until its replacement is healthy. A failed deploy changes nothing.
 - **History, rollback, and redeploy**: every deploy is an append-only row. Roll back to any build that once served traffic, or redeploy the latest (retry a failed deploy after fixing the cause, or re-run the live one to pick up changed secrets), all through the same safe pipeline.
 - **Run commands and shell in**: run a one-off maintenance command in an app's live container (a migration, a backfill, a one-time login) and watch its output, or open a full interactive terminal into the container from the browser. Both exec into the running container, so a token written by a login lands where the live app can read it. App repos need no setup for this.
@@ -19,14 +19,15 @@ The goal is one place to run everything about a project that isn't writing code:
 - **Uptime and alerts**: a background monitor pings each live app's health check on a tick, so the project's status dot reflects a real ping rather than deploy history. A sustained outage or a failed deploy pushes a notification to an ntfy topic you subscribe to on your phone, with a recovery notification when it comes back.
 - **Credential expiry**: set an expiry date for the tokens that can lapse (the GHCR pull token, the Cloudflare API token, the backup repo token) and the console warns you through the same ntfy channel before they expire, so a dead token never silently breaks a deploy.
 - **Backups**: a nightly encrypted copy of the console's own state (its SQLite database plus the Fernet key that everything is encrypted with) pushed off-box to a private GitHub repo. The bundle is encrypted with a passphrase you set from the console (or mount as a secret) and keep in your password manager, so the destination alone reveals nothing, and `python -m console.backup.restore` recovers it. Losing the key means losing every stored secret, so this is the backup that matters.
-- **Settings**: server-level credentials the console manages for you: a GitHub `read:packages` token so it can pull private images, the Cloudflare Access API token + account id, and the backup destination, all stored encrypted and set from the UI, with step-by-step instructions on the page.
-- **Validation and starters**: a `console.toml` checker runs the real deploy validator, and each project gets prefilled starter `console.toml`, `Dockerfile`, and `deploy.yml` files as a setup checklist that disappears once the first deploy lands.
+- **Settings**: server-level credentials the console manages for you: a GitHub `write:packages` token so it can push what it builds and pull private images, the Cloudflare Access API token + account id, and the backup destination, all stored encrypted and set from the UI, with step-by-step instructions on the page.
+- **Validation and starters**: a `console.toml` checker runs the real deploy validator, and each project gets prefilled starter `console.toml` and `Dockerfile` files as a setup checklist that disappears once the first deploy lands.
 
 ## How a deploy works
 
 ```
-GitHub Actions build -> push image to GHCR
-        -> POST /hooks/build-finished (authenticated by GitHub OIDC)
+push to the tracked branch
+        -> the watcher sees the new head (polls GitHub every 30 s)
+        -> builder: docker buildx build from the repo at that sha, push to GHCR
         -> engine pulls the image and runs the new container alongside the live one
         -> health check
         -> Traefik priority label swap (new container takes traffic)
@@ -35,18 +36,18 @@ GitHub Actions build -> push image to GHCR
 
 The safety invariant: the live container is never stopped until its replacement has answered a health check.
 
-Webhooks authenticate with GitHub OIDC (no shared secrets); the build workflow requests a token scoped to this console and the receiver rejects anything not owned by the expected account. The build logic lives once here as a reusable workflow, and each app repo calls it with a thin `deploy.yml`.
+Nothing calls into the console to make this happen: it polls GitHub through the connection it already holds, so there is no webhook, no shared secret, and no path that has to skip the login. The build runs in a BuildKit builder created once on the host with memory and CPU caps, and one build runs at a time.
 
 ## Architecture
 
-- **Backend**: FastAPI, SQLAlchemy 2.0 async, Alembic migrations, the Docker SDK for container operations, and PyJWT for OIDC verification. Secrets use Fernet with the key supplied via `CONSOLE_KEY_FILE` (never in git); without it the console runs but secret operations return a clear 503.
+- **Backend**: FastAPI, SQLAlchemy 2.0 async, Alembic migrations, and the Docker SDK for container operations. Secrets use Fernet with the key supplied via `CONSOLE_KEY_FILE` (never in git); without it the console runs but secret operations return a clear 503.
 - **Frontend**: React + Vite + TypeScript single-page app with a custom dense, monospace-for-machine-data UI. In production the built SPA is served by the same backend.
 - **Routing**: Traefik discovers containers by labels on an external Docker network named `web`. A single wildcard route on the Cloudflare tunnel means adding an app never touches Traefik, DNS, or the tunnel.
 - **State**: SQLite on a host bind-mount, holding projects, secrets, settings, and append-only deploy history. Each *app* brings its own database as an opaque `DATABASE_URL` secret; the console itself needs none.
 
 ## Scope
 
-This is deliberately single-tenant and small. Some things are non-goals on purpose: no in-app auth (a Cloudflare Access edge handles it), no building on the server (GitHub Actions builds and pushes to GHCR; the server only pulls and runs), no log streaming (polling only, the one exception being the interactive terminal, which needs a websocket a poll cannot replace), and no blue/green or multi-node orchestration.
+This is deliberately single-tenant and small. Some things are non-goals on purpose: no in-app auth (a Cloudflare Access edge handles it), no build farm (one capped builder, one build at a time, and never the console's own image), no log streaming (polling only, the one exception being the interactive terminal, which needs a websocket a poll cannot replace), and no blue/green or multi-node orchestration.
 
 ## Configuration
 
@@ -55,11 +56,10 @@ Everything installation-specific is environment, not code. The console reads:
 | variable | required | what it is |
 | --- | --- | --- |
 | `CONSOLE_DOMAIN` | yes in prod | your base domain, so apps serve at `{subdomain}.{domain}` |
-| `CONSOLE_OIDC_OWNER` | yes in prod | the GitHub account whose repos may deploy here. Unset rejects every webhook rather than trusting anyone |
+| `CONSOLE_OIDC_OWNER` | yes in prod | the GitHub account whose images may deploy here, and the login for pushes. Unset refuses every image rather than trusting anyone |
 | `CONSOLE_KEY_FILE` | yes | path to the Fernet key that encrypts stored secrets |
 | `CONSOLE_DB_PATH` | no | where the SQLite database lives |
 | `CONSOLE_IMAGE` | no | override the console's own image, used to pin a known-good tag |
-| `CONSOLE_WORKFLOW_REPO` | no | the repo whose reusable build workflow app repos call. Defaults to upstream; set it if you run a fork |
 | `CONSOLE_BACKUP_PASSPHRASE_FILE` | no | mount the backup passphrase instead of storing it in Settings |
 
 The self-hosted workflows take two repository variables, since a workflow file
