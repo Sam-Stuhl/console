@@ -41,6 +41,24 @@ class FakeContainer:
         self.running = running
         self.stopped = False
         self.removed = False
+        self.output = []
+        self.logs_error = None
+        self.attrs = {"State": {"Status": "running" if running else "exited"}}
+
+    def crash(self, exit_code, output, status="exited"):
+        """The process inside died, the way a bad entrypoint does."""
+        self.running = False
+        self.attrs = {"State": {"Status": status, "ExitCode": exit_code}}
+        self.output = list(output)
+
+    def reload(self):
+        pass
+
+    def logs(self, tail=None):
+        if self.logs_error:
+            raise docker.errors.APIError(self.logs_error)
+        lines = self.output if tail is None else self.output[-tail:]
+        return "".join(f"{line}\n" for line in lines).encode()
 
     def stop(self):
         self.stopped = True
@@ -154,6 +172,21 @@ def unhealthy(monkeypatch, fake_docker):
     monkeypatch.setattr(engine, "_probe", probe)
 
 
+@pytest.fixture
+def crashed(monkeypatch, fake_docker):
+    """The new container's process dies while the probe is still polling, so
+    the probe only ever sees that nothing is listening."""
+
+    async def probe(url, timeout):
+        fake_docker.events.append(("probe", url))
+        fake_docker.by_name[fake_docker.run_calls[-1]["name"]].crash(
+            1, ["boot: two configs claim the same slot, refusing to pick"]
+        )
+        return False, "ConnectError: [Errno -2] Name or service not known"
+
+    monkeypatch.setattr(engine, "_probe", probe)
+
+
 async def seed(db, *, toml=TOML, status="queued", with_live_row=False):
     async with db() as session:
         project = Project(name="demo", repo="example-owner/demo", subdomain="app-demo")
@@ -253,6 +286,107 @@ async def test_failed_health_never_touches_old_container(
     assert old.name in fake_docker.by_name
     # The new container is gone
     assert "demo-e5f6a7b" not in fake_docker.by_name
+
+
+# Failure evidence. The probe can only report that nothing answered; the
+# reason the process is not running is in the container's own output, and used
+# to be thrown away with the container.
+
+
+async def test_failed_deploy_records_the_container_it_removed(
+    sessions, fake_docker, crashed
+):
+    _, deployment, _ = await seed(sessions)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "container exited, exit code 1" in row.log
+    assert "two configs claim the same slot" in row.log
+    # The one-line summary is still the probe's, and the evidence precedes it
+    assert "did not return 200" in row.failure_reason
+    assert row.log.index("container exited") < row.log.index("failed: health check")
+    # And the container is still gone
+    assert "demo-e5f6a7b" not in fake_docker.by_name
+
+
+async def test_crash_looping_container_is_read_while_restarting(
+    sessions, fake_docker, monkeypatch
+):
+    """unless-stopped keeps restarting a dying entrypoint for the whole
+    timeout, so the container can be mid-restart when the deploy gives up."""
+
+    async def probe(url, timeout):
+        fake_docker.by_name[fake_docker.run_calls[-1]["name"]].crash(
+            2, ["boot: missing setting"], status="restarting"
+        )
+        return False, "ConnectError: connection refused"
+
+    monkeypatch.setattr(engine, "_probe", probe)
+    _, deployment, _ = await seed(sessions)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert "container restarting, exit code 2" in row.log
+    assert "boot: missing setting" in row.log
+
+
+async def test_running_container_is_not_given_an_exit_code(
+    sessions, fake_docker, unhealthy
+):
+    """A container that is up but never returns 200 has no exit code to
+    report, and inventing one would point at the wrong bug."""
+    _, deployment, _ = await seed(sessions)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert "container running" in row.log
+    assert "exit code" not in row.log
+    assert "container wrote no output" in row.log
+
+
+async def test_unreadable_container_still_fails_and_is_removed(
+    sessions, fake_docker, unhealthy, monkeypatch
+):
+    """Capture is best effort: it must never change a deploy's outcome."""
+
+    def explode(self, *args, **kwargs):
+        raise docker.errors.APIError("daemon is not answering")
+
+    monkeypatch.setattr(FakeContainer, "reload", explode)
+    monkeypatch.setattr(FakeContainer, "logs", explode)
+    _, deployment, _ = await seed(sessions)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "did not return 200" in row.failure_reason
+    assert "demo-e5f6a7b" not in fake_docker.by_name
+
+
+async def test_captured_output_is_capped(sessions, fake_docker, monkeypatch):
+    """One runaway line must not become the whole deployment log."""
+    monkeypatch.setattr(config, "FAILED_LOG_MAX_BYTES", 64)
+
+    async def probe(url, timeout):
+        fake_docker.by_name[fake_docker.run_calls[-1]["name"]].crash(
+            1, ["x" * 500, "the last line names the cause"]
+        )
+        return False, "ConnectError: connection refused"
+
+    monkeypatch.setattr(engine, "_probe", probe)
+    _, deployment, _ = await seed(sessions)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert "truncated" in row.log
+    assert "the last line names the cause" in row.log
+    assert "x" * 100 not in row.log
 
 
 async def test_live_container_without_priority_label_gets_start(
