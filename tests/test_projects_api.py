@@ -164,3 +164,43 @@ async def test_missing_key_file_gives_503_only_for_secrets(client, monkeypatch, 
 
     # Non-secret routes still work without a key
     assert (await client.get("/api/projects")).status_code == 200
+
+
+async def test_rename_project(client):
+    project_id = (await create(client)).json()["id"]
+
+    response = await client.put(f"/api/projects/{project_id}/name", json={"name": "cedar"})
+    assert response.status_code == 200
+    assert response.json()["name"] == "cedar"
+
+    # the rest of its identity is untouched: a rename is a label, not a move
+    body = response.json()
+    assert body["subdomain"] == PROJECT["subdomain"]
+    assert body["repo"] == PROJECT["repo"]
+    assert body["url"] == f"https://{PROJECT['subdomain']}.{config.DOMAIN}"
+    assert [p["name"] for p in (await client.get("/api/projects")).json()] == ["cedar"]
+
+
+async def test_rename_trims_and_rejects_blank_or_taken(client):
+    first = (await create(client)).json()["id"]
+    second = (
+        await create(client, name="other", repo="example-owner/other", subdomain="other")
+    ).json()["id"]
+
+    trimmed = await client.put(f"/api/projects/{second}/name", json={"name": "  cedar  "})
+    assert trimmed.json()["name"] == "cedar"
+
+    blank = await client.put(f"/api/projects/{second}/name", json={"name": "   "})
+    assert blank.status_code == 400
+
+    taken = await client.put(f"/api/projects/{first}/name", json={"name": "cedar"})
+    assert taken.status_code == 409
+    assert "already exists" in taken.json()["detail"]
+
+    # renaming to the name it already has is a no-op, not a conflict with itself
+    same = await client.put(f"/api/projects/{second}/name", json={"name": "cedar"})
+    assert same.status_code == 200
+
+
+async def test_rename_unknown_project_404s(client):
+    assert (await client.put("/api/projects/nope/name", json={"name": "x"})).status_code == 404

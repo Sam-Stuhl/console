@@ -216,6 +216,9 @@ export const changeProjectDomain = (
     jsonInit('PUT', { domain, repoint }),
   )
 
+export const renameProject = (id: string, name: string) =>
+  request<Project>(`/api/projects/${id}/name`, jsonInit('PUT', { name }))
+
 export const deleteProject = (id: string) =>
   request<void>(`/api/projects/${id}`, jsonInit('DELETE'))
 

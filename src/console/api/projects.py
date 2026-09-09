@@ -65,6 +65,10 @@ class AccessUpdate(BaseModel):
     emails: list[str] = []
 
 
+class NameUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
 class DomainUpdate(BaseModel):
     domain: str | None = None  # None means the primary CONSOLE_DOMAIN
     # For a protected app, how to move its Access login gate to the new hostname:
@@ -223,6 +227,41 @@ async def set_auto_build(
         raise HTTPException(status_code=503, detail=str(exc))
     except Upstream as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+    health = await session.get(ProjectHealth, project_id)
+    latest, live = await deploy_state(session)
+    return _out(
+        project,
+        health.state if health else "unknown",
+        latest.get(project_id),
+        project_id in live,
+    )
+
+
+@router.put("/{project_id}/name")
+async def set_name(
+    project_id: str,
+    body: NameUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> ProjectOut:
+    """Rename a project, for when the app is rebranded under the console.
+
+    Only the label the console shows. Containers, image tags, and the repo take
+    their names from the repo's console.toml and its GHCR path, so a rename
+    here never touches anything that is running."""
+    project = await get_project(project_id, session)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="a project needs a name")
+    if name != project.name:
+        taken = await session.scalar(
+            select(Project).where(Project.name == name, Project.id != project_id)
+        )
+        if taken:
+            raise HTTPException(
+                status_code=409, detail=f'a project with name "{name}" already exists'
+            )
+        project.name = name
+        await session.commit()
     health = await session.get(ProjectHealth, project_id)
     latest, live = await deploy_state(session)
     return _out(
