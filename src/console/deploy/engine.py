@@ -348,10 +348,15 @@ async def _probe(url: str, timeout: int) -> tuple[bool, str]:
 async def _fail(session: AsyncSession, deployment: Deployment, reason: str) -> None:
     # Best-effort removal of the container this deployment created. The
     # ownership label check means an old container can never match.
+    evidence = ""
     if deployment.container_name:
         try:
             container = await run(get_client().containers.get, deployment.container_name)
             if container.labels.get("console.deployment") == deployment.id:
+                # Read it before it is gone. A process that died on startup
+                # said why in its own output, and every failure reason the
+                # console can write describes the symptom instead.
+                evidence = await _evidence(container)
                 await run(container.remove, force=True)
         except Exception:
             pass
@@ -359,7 +364,7 @@ async def _fail(session: AsyncSession, deployment: Deployment, reason: str) -> N
     deployment.substate = None
     deployment.failure_reason = reason
     deployment.finished_at = utcnow()
-    deployment.log = (deployment.log or "") + f"failed: {reason}\n"
+    deployment.log = (deployment.log or "") + evidence + f"failed: {reason}\n"
     await session.commit()
 
     # Best-effort deploy-failure alert; never let it break the fail path.
@@ -375,6 +380,54 @@ async def _fail(session: AsyncSession, deployment: Deployment, reason: str) -> N
         )
     except Exception:
         logger.warning("deploy-failure alert failed", exc_info=True)
+
+
+async def _evidence(container) -> str:
+    """The failed container's state and last output, as log lines.
+
+    Pure best effort: a container that cannot be read is still removed and the
+    deploy still fails the same way, it just fails with less to go on. So this
+    never raises and never changes the outcome.
+
+    The container may be running, exited or restarting by the time it gets
+    here, because a crash-looping entrypoint keeps being restarted for the
+    whole health-check timeout. Only a container that is not running has an
+    exit code worth reporting; logs are worth reading in every state."""
+    lines = []
+    try:
+        await run(container.reload)
+        state = container.attrs.get("State") or {}
+        status = state.get("Status") or "unknown"
+        code = state.get("ExitCode")
+        if status == "running" or code is None:
+            lines.append(f"container {status}")
+        else:
+            lines.append(f"container {status}, exit code {code}")
+    except Exception:
+        logger.warning("could not read failed container state", exc_info=True)
+
+    try:
+        raw = await run(container.logs, tail=config.FAILED_LOG_TAIL)
+        output = raw.decode("utf-8", errors="replace").strip()
+    except Exception:
+        logger.warning("could not read failed container logs", exc_info=True)
+        return _joined(lines)
+
+    if not output:
+        lines.append("container wrote no output")
+        return _joined(lines)
+    if len(output) > config.FAILED_LOG_MAX_BYTES:
+        output = output[-config.FAILED_LOG_MAX_BYTES :]
+        lines.append("container output (truncated, last lines):")
+    else:
+        lines.append("container output (last lines):")
+    # Indented, so the app's own words are never mistaken for the console's.
+    lines.extend(f"  {line}" for line in output.splitlines())
+    return _joined(lines)
+
+
+def _joined(lines: list[str]) -> str:
+    return "".join(f"{line}\n" for line in lines)
 
 
 async def _log(session: AsyncSession, deployment: Deployment, line: str) -> None:

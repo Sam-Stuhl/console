@@ -77,6 +77,14 @@ GITHUB_FILE_MAX_BYTES = 256 * 1024  # a console.toml is a few hundred bytes
 PRIORITY_START = 4_000_000_000
 HEALTH_POLL_INTERVAL = 2
 
+# A failed deploy reads the dead container's exit code and last output into the
+# deployment log before removing it. Without this the record holds only the
+# probe's own error, which says nothing answered and never says why. The tail
+# is sized for a stack trace; the byte cap keeps one runaway line out of the
+# log column, and the end is kept because that is where the error is.
+FAILED_LOG_TAIL = 50
+FAILED_LOG_MAX_BYTES = 8 * 1024
+
 # Old images are removed after a successful deploy, keeping this many per
 # project (the live one plus rollback targets). The console never deletes an
 # image it did not deploy. Set to 0 to keep every image forever, which is what
