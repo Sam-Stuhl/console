@@ -70,7 +70,12 @@ class NameUpdate(BaseModel):
 
 
 class DomainUpdate(BaseModel):
+    """Where the app serves: {subdomain}.{domain}. The two fields differ in what
+    omitting them means, because null domain already means something: null
+    domain is the primary CONSOLE_DOMAIN, null subdomain is "leave it alone"."""
+
     domain: str | None = None  # None means the primary CONSOLE_DOMAIN
+    subdomain: str | None = None  # None means keep the current one
     # For a protected app, how to move its Access login gate to the new hostname:
     # "auto" recreates it via Cloudflare; "manual" leaves it to the user.
     repoint: Literal["auto", "manual"] = "manual"
@@ -79,7 +84,9 @@ class DomainUpdate(BaseModel):
 class DomainChangeResult(BaseModel):
     project: ProjectOut
     redeploy_required: bool  # the Traefik host label only changes on next deploy
-    note: str | None = None  # what happened to the Access gate, if anything
+    # What happened to the Access gate, and (on a subdomain change) that the
+    # repo's console.toml is the half of the move the console cannot make.
+    note: str | None = None
 
 
 def _out(
@@ -316,9 +323,15 @@ async def set_domain(
     body: DomainUpdate,
     session: AsyncSession = Depends(get_session),
 ) -> DomainChangeResult:
-    """Move a project to a different base domain. The change only reaches Traefik
-    on the next deploy (the host label is baked in then), so the result always
-    flags that a redeploy is required.
+    """Move a project to a different hostname: another base domain, another
+    subdomain, or both. The change only reaches Traefik on the next deploy (the
+    host label is baked in then), so the result always flags that a redeploy is
+    required.
+
+    A subdomain change is only half the move, and the half the console cannot
+    make: the router rule is built from the repo's console.toml, so app.subdomain
+    has to change there too or the next deploy routes the old hostname back. The
+    note says so.
 
     If the app is protected by Cloudflare Access, its login gate is tied to the
     old hostname. "auto" recreates the gate for the new hostname (creating the
@@ -332,19 +345,46 @@ async def set_domain(
             detail=f'domain "{body.domain}" is not configured; add it in Settings first',
         )
     target = body.domain or config.DOMAIN
+
+    # Validated before anything reaches Cloudflare, so a typo cannot leave a
+    # gate on a hostname the project never moves to.
+    target_subdomain = project.subdomain
+    if body.subdomain is not None and body.subdomain != project.subdomain:
+        try:
+            validate_subdomain_format(body.subdomain)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        taken = await session.scalar(
+            select(Project).where(
+                Project.subdomain == body.subdomain, Project.id != project_id
+            )
+        )
+        if taken:
+            raise HTTPException(
+                status_code=409,
+                detail=f'a project with subdomain "{body.subdomain}" already exists',
+            )
+        target_subdomain = body.subdomain
+
     health = await session.get(ProjectHealth, project_id)
     state = health.state if health else "unknown"
 
-    if target == domains.of(project):
+    if target == domains.of(project) and target_subdomain == project.subdomain:
         return DomainChangeResult(
             project=_out(project, state),
             redeploy_required=False,
-            note="Already on this domain.",
+            note="Already serves at this hostname.",
         )
 
-    note: str | None = None
+    notes: list[str] = []
+    if target_subdomain != project.subdomain:
+        notes.append(
+            "Traefik routes the subdomain in the repo's console.toml, so set "
+            f'app.subdomain = "{target_subdomain}" there and redeploy: until then '
+            "the app keeps serving at the old hostname."
+        )
     if project.protected:
-        new_hostname = f"{project.subdomain}.{target}"
+        new_hostname = f"{target_subdomain}.{target}"
         if body.repoint == "auto":
             emails = project.access_emails.split(",") if project.access_emails else []
             token, account_id = await cloudflare.resolve_credentials(session)  # 503
@@ -359,9 +399,9 @@ async def set_domain(
                 except Exception:
                     pass
             project.cf_app_id = new_id
-            note = f"Moved the Cloudflare Access gate to {new_hostname}."
+            notes.append(f"Moved the Cloudflare Access gate to {new_hostname}.")
         else:
-            note = (
+            notes.append(
                 "Access is still on, but its login gate still points at the old "
                 "hostname. Move it in Cloudflare, or toggle protection off and "
                 "back on here to recreate it for the new hostname."
@@ -372,7 +412,7 @@ async def set_domain(
     # the domain change, so move() reports rather than raises.
     if body.repoint == "auto":
         moved, failed = await access_paths.move(
-            session, project_id, f"{project.subdomain}.{target}"
+            session, project_id, f"{target_subdomain}.{target}"
         )
         if moved or failed:
             paths_note = f"Moved {moved} bypass path(s)."
@@ -381,13 +421,16 @@ async def set_domain(
                     f" {failed} could not be recreated: check them in Cloudflare, "
                     "or remove and re-add them here."
                 )
-            note = f"{note} {paths_note}" if note else paths_note
+            notes.append(paths_note)
 
+    project.subdomain = target_subdomain
     # Store null for the primary so the "null = primary" invariant holds.
     project.domain = None if target == config.DOMAIN else target
     await session.commit()
     return DomainChangeResult(
-        project=_out(project, state), redeploy_required=True, note=note
+        project=_out(project, state),
+        redeploy_required=True,
+        note=" ".join(notes) or None,
     )
 
 
