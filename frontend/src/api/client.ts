@@ -206,15 +206,16 @@ export interface DomainChangeResult {
   note: string | null
 }
 
-export const changeProjectDomain = (
+// Where the app serves. A null domain means the primary one, so "leave the
+// subdomain alone" cannot also be null there: omit the field instead.
+export const changeProjectHostname = (
   id: string,
-  domain: string | null,
-  repoint: Repoint,
+  change: { domain: string | null; subdomain?: string; repoint: Repoint },
 ) =>
-  request<DomainChangeResult>(
-    `/api/projects/${id}/domain`,
-    jsonInit('PUT', { domain, repoint }),
-  )
+  request<DomainChangeResult>(`/api/projects/${id}/domain`, jsonInit('PUT', change))
+
+export const renameProject = (id: string, name: string) =>
+  request<Project>(`/api/projects/${id}/name`, jsonInit('PUT', { name }))
 
 export const deleteProject = (id: string) =>
   request<void>(`/api/projects/${id}`, jsonInit('DELETE'))

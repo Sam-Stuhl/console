@@ -232,3 +232,84 @@ async def test_change_domain_protected_manual_leaves_cf(client, db, fake_cf):
 
     async with db() as session:
         assert (await session.get(Project, pid)).cf_app_id == "old-app"
+
+
+# --- changing a project's subdomain ----------------------------------------
+
+
+async def test_change_subdomain_moves_the_hostname(client, fake_cf):
+    pid = await _make_project(client)
+
+    res = await client.put(f"/api/projects/{pid}/domain", json={"subdomain": "cedar"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["project"]["subdomain"] == "cedar"
+    assert body["project"]["url"] == f"https://cedar.{config.DOMAIN}"
+    assert body["project"]["domain"] == config.DOMAIN  # the base domain is unchanged
+    assert body["redeploy_required"] is True
+    # the half the console cannot make: Traefik reads the repo's console.toml
+    assert 'app.subdomain = "cedar"' in body["note"]
+    assert fake_cf.calls == []  # public app: Cloudflare untouched
+
+
+async def test_change_subdomain_and_domain_together(client, fake_cf):
+    await client.put("/api/domains", json={"extras": ["apps.example.com"]})
+    pid = await _make_project(client)
+
+    res = await client.put(
+        f"/api/projects/{pid}/domain",
+        json={"subdomain": "cedar", "domain": "apps.example.com"},
+    )
+    assert res.json()["project"]["url"] == "https://cedar.apps.example.com"
+
+
+async def test_omitted_subdomain_leaves_it_alone(client, fake_cf):
+    # null domain means "the primary", but null subdomain has to mean "keep it":
+    # a domain-only change must not blank the subdomain out
+    await client.put("/api/domains", json={"extras": ["apps.example.com"]})
+    pid = await _make_project(client)
+
+    res = await client.put(
+        f"/api/projects/{pid}/domain", json={"domain": "apps.example.com"}
+    )
+    assert res.json()["project"]["subdomain"] == "app"
+
+
+async def test_change_subdomain_validates_and_dedupes(client, fake_cf):
+    pid = await _make_project(client)
+    await _make_project(client, name="two", repo="example-owner/two", subdomain="taken")
+
+    bad = await client.put(f"/api/projects/{pid}/domain", json={"subdomain": "Not-Valid"})
+    assert bad.status_code == 400
+
+    reserved = await client.put(f"/api/projects/{pid}/domain", json={"subdomain": "console"})
+    assert reserved.status_code == 400
+    assert "reserved" in reserved.json()["detail"]
+
+    clash = await client.put(f"/api/projects/{pid}/domain", json={"subdomain": "taken"})
+    assert clash.status_code == 409
+
+    # rejected before anything reached Cloudflare, and nothing was saved
+    assert fake_cf.calls == []
+    assert (await client.get(f"/api/projects/{pid}")).json()["subdomain"] == "app"
+
+
+async def test_change_subdomain_noop_when_same(client, fake_cf):
+    pid = await _make_project(client)
+    res = await client.put(f"/api/projects/{pid}/domain", json={"subdomain": "app"})
+    assert res.json()["redeploy_required"] is False
+    assert fake_cf.calls == []
+
+
+async def test_change_subdomain_repoints_access_gate(client, db, fake_cf):
+    pid = await _make_project(client)
+    await _protect(db, pid)
+
+    res = await client.put(
+        f"/api/projects/{pid}/domain", json={"subdomain": "cedar", "repoint": "auto"}
+    )
+    assert res.status_code == 200
+    assert fake_cf.calls == [
+        ("reconcile", f"cedar.{config.DOMAIN}", True, ("me@example.com",), None),
+        ("delete", "old-app"),
+    ]

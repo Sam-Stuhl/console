@@ -7,6 +7,7 @@ import {
   fetchDeployments,
   fetchProject,
   refreshProjectIcon,
+  renameProject,
 } from '../api/client'
 import { localDay } from '../lib/format'
 import ProjectIcon from '../components/ProjectIcon'
@@ -68,7 +69,7 @@ export default function ProjectDetail() {
         {project ? (
           <>
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <h1 className="font-mono text-xl font-semibold">{project.name}</h1>
+              <ProjectName projectId={project.id} name={project.name} />
               {!needsSetup && id && <ControlsSection projectId={id} />}
             </div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm sm:grid-cols-[auto_1fr_auto_1fr]">
@@ -162,6 +163,94 @@ export default function ProjectDetail() {
         )}
       </Section>
     </div>
+  )
+}
+
+/**
+ * The project's display name, renamed in place. Only the label the console
+ * shows: containers and image tags take their names from the repo's
+ * console.toml, so a rebrand here never touches what is running.
+ */
+function ProjectName({ projectId, name }: { projectId: string; name: string }) {
+  const queryClient = useQueryClient()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(name)
+
+  const rename = useMutation({
+    mutationFn: () => renameProject(projectId, draft.trim()),
+    onSuccess: () => {
+      setEditing(false)
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+
+  // A real form so Return saves, rather than a keydown handler that only some
+  // browsers deliver to a lone input.
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!draft.trim() || draft.trim() === name) {
+      setEditing(false)
+      return
+    }
+    rename.mutate()
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="font-mono text-xl font-semibold">{name}</h1>
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(name)
+            rename.reset()
+            setEditing(true)
+          }}
+          className="font-mono text-xs text-muted transition-colors duration-150 hover:text-base-content hover:underline"
+        >
+          rename
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          autoFocus
+          value={draft}
+          maxLength={64}
+          spellCheck={false}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setEditing(false)
+          }}
+          className="input input-sm w-56 border-base-300 bg-base-200 font-mono text-lg font-semibold"
+        />
+        <button
+          type="submit"
+          disabled={rename.isPending}
+          className="font-mono text-xs text-accent transition-colors duration-150 hover:underline"
+        >
+          {rename.isPending ? 'saving…' : 'save'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          className="font-mono text-xs text-muted transition-colors duration-150 hover:text-base-content"
+        >
+          cancel
+        </button>
+      </div>
+      <span className="font-mono text-xs text-faint">
+        display name only. containers and images keep the name from console.toml.
+      </span>
+      {rename.isError && (
+        <span className="font-mono text-xs text-error">{(rename.error as Error).message}</span>
+      )}
+    </form>
   )
 }
 
