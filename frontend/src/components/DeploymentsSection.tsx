@@ -21,6 +21,11 @@ export function canRedeploy(d: DeploymentSummary): boolean {
   return d.image !== null && (d.status === 'live' || d.status === 'failed')
 }
 
+// How many rows show before the rest fold away. History is append-only and a
+// busy project accumulates dozens of superseded rows; what is live and what it
+// replaced is what anyone is actually looking for.
+export const RECENT = 5
+
 export function deployTook(d: DeploymentSummary): string {
   // For superseded rows finished_at is when they were replaced, not when
   // their deploy ended, so a duration would be nonsense.
@@ -48,6 +53,7 @@ export default function DeploymentsSection({
 
   const [confirming, setConfirming] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [showAll, setShowAll] = useState(false)
 
   const rollback = useMutation({
     mutationFn: (deploymentId: string) => rollbackDeployment(projectId, deploymentId),
@@ -91,6 +97,9 @@ export default function DeploymentsSection({
     )
   }
 
+  const older = deployments.length - RECENT
+  const shown = showAll ? deployments : deployments.slice(0, RECENT)
+
   return (
     <div className="flex flex-col gap-3">
       <AutoBuildToggle projectId={projectId} branch={branch} enabled={autoBuild} />
@@ -98,7 +107,7 @@ export default function DeploymentsSection({
       <DeployImageForm projectId={projectId} imageHint={imageHint} branch={branch} />
       <table className="w-full font-mono text-xs">
         <tbody>
-          {deployments.map((d, i) => (
+          {shown.map((d, i) => (
             <tr key={d.id} className="border-b border-base-300/40 last:border-none">
               <td className="w-40 py-2 pr-4">
                 <DeployBadge status={d.status} substate={d.substate} />
@@ -166,6 +175,15 @@ export default function DeploymentsSection({
           ))}
         </tbody>
       </table>
+      {older > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((open) => !open)}
+          className="self-start font-mono text-xs text-muted transition-colors duration-150 hover:text-base-content hover:underline"
+        >
+          {showAll ? 'hide older' : `show ${older} older`}
+        </button>
+      )}
       {actionError && <p className="font-mono text-xs text-error">{actionError}</p>}
     </div>
   )
