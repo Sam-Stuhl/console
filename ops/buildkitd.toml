@@ -1,0 +1,6 @@
+# Config for the console-build BuildKit builder (docs/server-setup.md, "The
+# builder"). One step at a time: parallel stages share the builder's single
+# memory cap, and two pnpm installs side by side blew a 2 GB cap on the happy
+# monorepo. Serial is slower and cannot do that.
+[worker.oci]
+  max-parallelism = 1
