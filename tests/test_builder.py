@@ -346,3 +346,30 @@ def test_failure_reason_trims_a_long_error():
 def test_failure_reason_uses_the_last_error_line():
     output = "#5 ERROR: first\nERROR: failed to solve: second\n"
     assert builder.failure_reason(output, 1, None) == "build failed: failed to solve: second"
+
+
+async def test_a_restart_clears_leftover_builds_and_builds_again(db, fake_docker, monkeypatch):
+    # The console's own update restarts it; a build in flight then lost the
+    # task streaming it, and its sha could not be built again until the
+    # reaper's 30 minutes were up.
+    _, building = await seed(db)
+    async with db() as session:
+        session.add(Deployment(project_id=building.project_id, sha="f" * 40, status="live"))
+        await session.commit()
+    leftover = FakeBuildContainer(fake_docker)
+    listed = []
+
+    def list_containers(all=False, filters=None):
+        listed.append(filters)
+        return [leftover]
+
+    fake_docker.containers.list = list_containers
+    enqueued = []
+    monkeypatch.setattr(builder, "enqueue", enqueued.append)
+
+    async with db() as session:
+        resumed = await builder.resume_after_restart(session)
+
+    assert listed == [{"name": "console-build-"}]
+    assert leftover.removed
+    assert resumed == enqueued == [building.id]

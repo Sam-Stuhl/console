@@ -28,7 +28,7 @@ from console.api.tokens import router as tokens_router
 from console.api.validate import router as validate_router
 from console.db.models import CommandRun, Deployment, utcnow
 from console.db.session import SessionLocal
-from console.deploy import engine as deploy_engine
+from console.deploy import builder, engine as deploy_engine
 from console.cloudflare import AccessNotConfigured
 from console.backup.engine import backup_loop
 from console.deploy.reaper import reaper_loop
@@ -65,6 +65,11 @@ async def lifespan(_app: FastAPI):
         )
         for deployment_id in queued:
             deploy_engine.enqueue(deployment_id)
+
+        # The same for builds, which also die with the process. Without this a
+        # console update landing mid-build leaves the sha unbuildable until the
+        # reaper's 30 minutes are up.
+        await builder.resume_after_restart(session)
 
         # An in-flight command exec cannot be resumed, so any run still marked
         # running is orphaned by the restart. Fail it rather than leave it hung.
