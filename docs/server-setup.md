@@ -281,15 +281,27 @@ so a build can never starve the apps it serves next to. The console attaches
 to it and never creates it, so a missing builder fails a build with this step
 named:
 
+From the deploy clone (`ops/buildkitd.toml` is read once, at create time):
+
 ```bash
 docker buildx create --name console-build --driver docker-container \
-  --driver-opt memory=2g --driver-opt cpu-quota=200000 --driver-opt cpu-period=100000
+  --driver-opt memory=3584m --driver-opt cpu-quota=200000 --driver-opt cpu-period=100000 \
+  --buildkitd-config ops/buildkitd.toml
 docker buildx inspect --bootstrap console-build
 ```
 
 That starts `buildx_buildkit_console-build0`, restart policy `unless-stopped`,
 which is also where the layer cache lives. Every build ends with a prune that
 keeps the cache under 5 GB.
+
+The cap is 3.5 GB of a 6 GB VM (running apps use about 1.2 GB) and
+`ops/buildkitd.toml` holds BuildKit to one step at a time. Both came from one
+failure: the cap was 2 GB, BuildKit ran a multi-stage Dockerfile's stages in
+parallel inside it, and two `pnpm install`s on the happy monorepo were killed
+for memory. A build that runs out of memory fails with "build ran out of
+memory at ..." and the builder's live cap. To change either setting, remove
+and recreate only the builder (`docker buildx rm console-build`, then the
+commands above); the layer cache goes with it, the apps do not notice.
 
 **Cloudflare Access** (gate an app's hostname with a login). A project's
 **access** toggle then creates or removes a self-hosted Access app for

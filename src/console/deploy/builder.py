@@ -18,6 +18,7 @@ The console never builds its own image through this: that would be circular
 
 import asyncio
 import logging
+import re
 import time
 
 import docker.errors
@@ -40,6 +41,13 @@ _lock = asyncio.Lock()
 _tasks: set[asyncio.Task] = set()
 
 _TRUNCATED = "\n... build output truncated ...\n"
+# The end of the build output kept for naming a failure, whether or not the
+# stored log was truncated before it.
+_TAIL_MAX = 64 * 1024
+_OOM_MARKERS = ("cannot allocate memory", "ResourceExhausted", "Killed", "exit code: 137")
+_PROCESS = re.compile(r'process "(?:/bin/sh -c )?(.+?)" did not complete')
+_REASON_MAX = 300
+_COMMAND_MAX = 60
 
 # What runs inside the CLI container. Everything variable arrives as an
 # environment variable, never interpolated into the script, so a repo name
@@ -215,7 +223,7 @@ async def _build(session: AsyncSession, deployment: Deployment, project: Project
     except docker.errors.DockerException as exc:
         raise BuildFailed(f"could not start the build container: {exc}")
     try:
-        exit_code = await _drain(session, deployment, container)
+        exit_code, tail = await _drain(session, deployment, container)
     finally:
         # The container held two tokens in its environment; it does not outlive
         # the build, whichever way the build went.
@@ -224,7 +232,7 @@ async def _build(session: AsyncSession, deployment: Deployment, project: Project
         except Exception:
             logger.warning("build container %s was not removed", name, exc_info=True)
     if exit_code != 0:
-        raise BuildFailed(f"build exited {exit_code}")
+        raise BuildFailed(failure_reason(tail, exit_code, await _builder_memory(client)))
 
     deployment.image = image
     deployment.config_snapshot = cfg.model_dump_json()
@@ -234,13 +242,17 @@ async def _build(session: AsyncSession, deployment: Deployment, project: Project
     await deploy_engine.queue(session, deployment)
 
 
-async def _drain(session: AsyncSession, deployment: Deployment, container) -> int:
+async def _drain(
+    session: AsyncSession, deployment: Deployment, container
+) -> tuple[int, str]:
     """Stream the build output into the row until the container exits.
-    Returns its exit code. Past BUILD_TIMEOUT the container is killed, which
-    also ends a build that hung without printing anything."""
+    Returns its exit code and the last _TAIL_MAX of output. Past
+    BUILD_TIMEOUT the container is killed, which also ends a build that hung
+    without printing anything."""
     stream = await run(container.logs, stream=True, follow=True)
     deadline = time.monotonic() + config.BUILD_TIMEOUT
     truncated = False
+    tail = ""
     while True:
         remaining = deadline - time.monotonic()
         try:
@@ -255,12 +267,55 @@ async def _drain(session: AsyncSession, deployment: Deployment, container) -> in
             raise BuildFailed(f"build outran {int(config.BUILD_TIMEOUT) // 60} minutes")
         if chunk is None:
             break
+        text = chunk.decode("utf-8", errors="replace")
+        tail = (tail + text)[-_TAIL_MAX:]
         if not truncated:
-            truncated = await _append(
-                session, deployment, chunk.decode("utf-8", errors="replace")
-            )
+            truncated = await _append(session, deployment, text)
     result = await run(container.wait)
-    return int(result.get("StatusCode", -1))
+    return int(result.get("StatusCode", -1)), tail
+
+
+def failure_reason(output: str, exit_code: int, memory_cap: int | None) -> str:
+    """Name a failed build from the end of its output: the last BuildKit
+    ERROR line, or "ran out of memory at <step>" when that line says the
+    builder's cap was hit (parallel stages can share one cap and blow it).
+    Falls back to the exit code when there is no ERROR line."""
+    errors = [line.strip() for line in output.splitlines() if "ERROR:" in line]
+    if not errors:
+        return f"build exited {exit_code}"
+    line = errors[-1]
+    if any(marker in line for marker in _OOM_MARKERS):
+        reason = "build ran out of memory"
+        match = _PROCESS.search(line)
+        if match:
+            command = match.group(1)
+            if len(command) > _COMMAND_MAX:
+                command = command[:_COMMAND_MAX].rsplit(" ", 1)[0] + " ..."
+            reason += f' at "{command}"'
+        if memory_cap:
+            reason += f" (builder cap {_gigabytes(memory_cap)})"
+        return reason
+    line = line[line.index("ERROR:") + len("ERROR:"):].strip()
+    if len(line) > _REASON_MAX:
+        line = line[:_REASON_MAX].rstrip() + " ..."
+    return f"build failed: {line}"
+
+
+def _gigabytes(size: int) -> str:
+    return f"{round(size / 2**30, 1):g} GB"
+
+
+async def _builder_memory(client) -> int | None:
+    """The builder container's memory limit in bytes, or None when it cannot
+    be read or is unlimited. Read live so the message names the cap the host
+    actually set, not one the console was told about."""
+    try:
+        container = await run(
+            client.containers.get, f"buildx_buildkit_{config.BUILD_BUILDER}0"
+        )
+        return container.attrs["HostConfig"]["Memory"] or None
+    except Exception:
+        return None
 
 
 async def _append(session: AsyncSession, deployment: Deployment, text: str) -> bool:

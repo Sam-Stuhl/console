@@ -307,3 +307,60 @@ async def test_a_policyless_app_is_cleaned_up(fake_cf_http):
         "POST",
         "DELETE",
     ]
+
+
+class ExistingAppClient(FakeCfClient):
+    """Cloudflare that already holds an app on the requested path."""
+
+    existing_policy = {"decision": "bypass", "include": [{"everyone": {}}]}
+
+    async def request(self, method, url, **kwargs):
+        FakeCfClient.sent.append((method, url, kwargs.get("json")))
+        if method == "POST" and url.endswith("/access/apps"):
+            return FakeCfResponse(
+                {
+                    "success": False,
+                    "errors": [{"message": "access.api.error.application_already_exists"}],
+                },
+                409,
+            )
+        if method == "GET" and url.endswith("/access/apps"):
+            return FakeCfResponse(
+                {
+                    "success": True,
+                    "result": [
+                        {"id": "other", "domain": "app.example.com"},
+                        {"id": "app-9", "domain": "app.example.com/v2"},
+                    ],
+                }
+            )
+        if method == "GET" and url.endswith("/app-9/policies"):
+            return FakeCfResponse(
+                {"success": True, "result": [ExistingAppClient.existing_policy]}
+            )
+        return FakeCfResponse({"success": False, "errors": [{"message": "unexpected"}]}, 500)
+
+
+async def test_an_existing_bypass_on_the_path_is_adopted(monkeypatch):
+    # An attempt that opened the path in Cloudflare but never recorded it
+    # should not leave the path impossible to open: the app is reused.
+    FakeCfClient.sent = []
+    monkeypatch.setattr(cloudflare.httpx, "AsyncClient", ExistingAppClient)
+
+    app_id = await cloudflare.Access("tok", "acct").create_bypass("app.example.com", "v2")
+
+    assert app_id == "app-9"
+    assert not any(method == "DELETE" for method, _url, _body in FakeCfClient.sent)
+
+
+async def test_an_existing_login_gate_on_the_path_is_not_taken_over(monkeypatch):
+    FakeCfClient.sent = []
+    monkeypatch.setattr(cloudflare.httpx, "AsyncClient", ExistingAppClient)
+    monkeypatch.setattr(
+        ExistingAppClient,
+        "existing_policy",
+        {"decision": "allow", "include": [{"email": {"email": "a@b.c"}}]},
+    )
+
+    with pytest.raises(cloudflare.AccessApiError, match="does not bypass"):
+        await cloudflare.Access("tok", "acct").create_bypass("app.example.com", "v2")

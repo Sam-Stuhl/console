@@ -37,7 +37,7 @@ from console.db.models import (
 from console.deploy import builder, engine as deploy_engine, history, manual, plan
 from console.docker import containers as docker_containers
 from console.docker.client import get_client, run
-from console.errors import Conflict, Invalid, NotFound, Unavailable
+from console.errors import Conflict, Invalid, NotFound, Unavailable, Upstream
 from console.schema.console_toml import validate_subdomain_format
 from console.v1 import models
 
