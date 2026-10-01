@@ -22,6 +22,7 @@ import re
 import time
 
 import docker.errors
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from console import alerts, config, github, settings_store
@@ -338,6 +339,32 @@ async def _append(session: AsyncSession, deployment: Deployment, text: str) -> b
 async def _log(session: AsyncSession, deployment: Deployment, line: str) -> None:
     deployment.log = (deployment.log or "") + line + "\n"
     await session.commit()
+
+
+async def resume_after_restart(session: AsyncSession) -> list[str]:
+    """Builds do not survive a console restart: the task streaming a build's
+    output dies with the process, so its row would sit in "building" until the
+    reaper times it out, and the sha could not be built again meanwhile (the
+    console's own update restarts it mid-build). Remove any build container
+    the old process left behind (it carries two tokens and would race a new
+    build for the same name), then build each such row again from the start.
+    Returns the ids re-enqueued."""
+    try:
+        client = get_client()
+        leftovers = await run(
+            client.containers.list, all=True, filters={"name": "console-build-"}
+        )
+        for container in leftovers:
+            await run(container.remove, force=True)
+    except Exception:
+        logger.warning("could not clear leftover build containers", exc_info=True)
+    rows = await session.scalars(
+        select(Deployment.id).where(Deployment.status == "building")
+    )
+    ids = list(rows)
+    for deployment_id in ids:
+        enqueue(deployment_id)
+    return ids
 
 
 async def _fail(
