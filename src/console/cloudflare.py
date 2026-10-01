@@ -154,17 +154,22 @@ class Access:
         bypass, which is the opposite of what was asked for, so a half-created
         app is removed before the error is raised."""
         async with httpx.AsyncClient(timeout=15) as client:
-            app = await self._request(
-                client,
-                "POST",
-                self._apps_url(),
-                json={
-                    "name": f"{hostname}/{path} (bypass)",
-                    "domain": f"{hostname}/{path}",
-                    "type": "self_hosted",
-                    "session_duration": "24h",
-                },
-            )
+            try:
+                app = await self._request(
+                    client,
+                    "POST",
+                    self._apps_url(),
+                    json={
+                        "name": f"{hostname}/{path} (bypass)",
+                        "domain": f"{hostname}/{path}",
+                        "type": "self_hosted",
+                        "session_duration": "24h",
+                    },
+                )
+            except AccessApiError as exc:
+                if "application_already_exists" not in str(exc):
+                    raise
+                return await self._adopt_bypass(client, f"{hostname}/{path}")
             app_id = app["id"]
             try:
                 await self._request(
@@ -178,6 +183,31 @@ class Access:
                     await self._request(client, "DELETE", f"{self._apps_url()}/{app_id}")
                 raise
             return app_id
+
+    async def _adopt_bypass(self, client: httpx.AsyncClient, domain: str) -> str:
+        """Cloudflare already has an app on exactly this path, made outside the
+        console or by an attempt that never got recorded. Take it over only if
+        it already lets everyone through: an app on the path that asks for a
+        login is somebody's gate, and turning it into a hole is not this call's
+        to decide."""
+        apps = await self._request(client, "GET", self._apps_url()) or []
+        app = next((a for a in apps if a.get("domain") == domain), None)
+        if app is None:
+            raise AccessApiError(
+                f"Cloudflare says an Access app for {domain} exists, but it is not listed"
+            )
+        policies = await self._request(
+            client, "GET", f"{self._apps_url()}/{app['id']}/policies"
+        ) or []
+        if not any(
+            p.get("decision") == "bypass" and {"everyone": {}} in (p.get("include") or [])
+            for p in policies
+        ):
+            raise AccessApiError(
+                f"an Access app for {domain} already exists and does not bypass the "
+                "login; remove it in Cloudflare first if this path should be open"
+            )
+        return app["id"]
 
     async def delete_app(self, cf_app_id: str) -> None:
         async with httpx.AsyncClient(timeout=15) as client:
