@@ -4,7 +4,9 @@ the row's fate; the tokens never outlive it; and nothing is run at all when
 the build cannot possibly succeed."""
 
 import time
+from types import SimpleNamespace
 
+import docker.errors
 import pytest
 
 from console import config, settings_store
@@ -44,6 +46,12 @@ class FakeContainers:
     def __init__(self, fake):
         self.fake = fake
 
+    def get(self, name):
+        if self.fake.builder_memory is None:
+            raise docker.errors.NotFound(name)
+        assert name == f"buildx_buildkit_{config.BUILD_BUILDER}0"
+        return SimpleNamespace(attrs={"HostConfig": {"Memory": self.fake.builder_memory}})
+
     def run(self, image, command, **kwargs):
         self.fake.runs.append({"image": image, "command": command, **kwargs})
         self.fake.container = FakeBuildContainer(self.fake)
@@ -55,6 +63,7 @@ class FakeDocker:
         self.runs = []
         self.chunks = [b"#1 building\n", b"#2 pushing\n"]
         self.exit_code = 0
+        self.builder_memory = None
         self.container = None
         self.containers = FakeContainers(self)
 
@@ -167,7 +176,7 @@ async def test_nonzero_exit_fails_and_keeps_the_log(db, fake_docker, queued, rep
 
     row = await reload(db, deployment.id)
     assert row.status == "failed"
-    assert row.failure_reason == "build exited 1"
+    assert row.failure_reason == "build failed: failed to solve"
     assert "ERROR: failed to solve\n" in row.log
     assert row.image is None
     assert queued == []
@@ -267,3 +276,73 @@ async def test_only_a_building_row_is_built(db, fake_docker, queued, repo_file):
     row = await reload(db, deployment.id)
     assert row.status == "failed"
     assert fake_docker.runs == []
+
+
+# The tail of the happy monorepo build that blew the 2 GB cap: two pnpm
+# installs in parallel stages, one of them killed.
+OOM_TAIL = b"""\
+#23 199.1 Killed
+#23 ERROR: process "/bin/sh -c pnpm install --frozen-lockfile --filter happy-app... --filter happy-wire..." did not complete successfully: exit code: 137
+------
+ > [web 11/15] RUN pnpm install --frozen-lockfile --filter happy-app...:
+------
+ERROR: failed to solve: ResourceExhausted: process "/bin/sh -c pnpm install --frozen-lockfile --filter happy-app... --filter happy-wire..." did not complete successfully: cannot allocate memory
+"""
+
+
+async def test_out_of_memory_names_the_step_and_the_cap(db, fake_docker, queued, repo_file):
+    _project, deployment = await seed(db)
+    fake_docker.chunks = [b"#1 building\n", OOM_TAIL]
+    fake_docker.exit_code = 1
+    fake_docker.builder_memory = 3584 * 1024 * 1024
+
+    await builder.run_build(deployment.id)
+
+    row = await reload(db, deployment.id)
+    assert row.status == "failed"
+    assert row.failure_reason == (
+        'build ran out of memory at "pnpm install --frozen-lockfile '
+        '--filter happy-app... ..." (builder cap 3.5 GB)'
+    )
+
+
+async def test_reason_survives_a_truncated_log(
+    db, fake_docker, queued, repo_file, monkeypatch
+):
+    monkeypatch.setattr(config, "BUILD_LOG_MAX", 40)
+    _project, deployment = await seed(db)
+    fake_docker.chunks = [b"x" * 60, b"\nERROR: failed to solve: dockerfile parse error\n"]
+    fake_docker.exit_code = 1
+
+    await builder.run_build(deployment.id)
+
+    row = await reload(db, deployment.id)
+    assert "parse error" not in row.log.split("failed:")[0]
+    assert row.failure_reason == "build failed: failed to solve: dockerfile parse error"
+
+
+async def test_no_error_line_falls_back_to_the_exit_code(db, fake_docker, queued, repo_file):
+    _project, deployment = await seed(db)
+    fake_docker.chunks = [b"Error response from daemon: no such container\n"]
+    fake_docker.exit_code = 125
+
+    await builder.run_build(deployment.id)
+
+    row = await reload(db, deployment.id)
+    assert row.failure_reason == "build exited 125"
+
+
+def test_failure_reason_without_a_readable_cap():
+    reason = builder.failure_reason(OOM_TAIL.decode(), 1, None)
+    assert reason.startswith('build ran out of memory at "pnpm install')
+    assert "builder cap" not in reason
+
+
+def test_failure_reason_trims_a_long_error():
+    reason = builder.failure_reason("ERROR: " + "a" * 1000 + "\n", 1, None)
+    assert reason == "build failed: " + "a" * 300 + " ..."
+
+
+def test_failure_reason_uses_the_last_error_line():
+    output = "#5 ERROR: first\nERROR: failed to solve: second\n"
+    assert builder.failure_reason(output, 1, None) == "build failed: failed to solve: second"
