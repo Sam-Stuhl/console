@@ -353,3 +353,16 @@ async def test_a_read_token_cannot_open_a_path(mcp, auth, project, fake_cf):
     assert result["result"]["isError"] is True
     assert "read-only" in json.dumps(result)
     assert fake_cf.calls == []  # refused before Cloudflare was touched
+
+
+async def test_a_cloudflare_refusal_reaches_the_agent(mcp, auth, project, fake_cf):
+    # The service mapped AccessApiError to an Upstream it never imported, so a
+    # plain refusal surfaced as "Error executing tool" with the reason lost.
+    fake_cf.fail_create = True
+    client = McpClient(mcp, await auth(tokens.WRITE))
+    await client.initialize()
+
+    result = await client.call("open_access_path", {"project": "Blog", "path": "api"})
+
+    assert result["result"]["isError"] is True
+    assert "not allowed" in json.dumps(result)
