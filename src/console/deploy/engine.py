@@ -263,6 +263,13 @@ async def _start_and_swap(
         sha=deployment.sha,
     )
     storage = {"volumes": binds} if binds else {}
+    alias = plan.network_alias(cfg)
+    if alias:
+        await _check_alias(client, alias, project.id)
+        storage["networking_config"] = {
+            "web": client.api.create_endpoint_config(aliases=[alias])
+        }
+        await _log(session, deployment, f"network alias {alias}")
     for host, spec in binds.items():
         await _log(session, deployment, f"mount {host} -> {spec['bind']} ({spec['mode']})")
     try:
@@ -330,6 +337,20 @@ async def _start_and_swap(
     await _log(session, deployment, "live")
 
 
+async def _check_alias(client, alias: str, project_id: str) -> None:
+    """An alias equal to another container's name (traefik, console, another
+    app's container) would make that name resolve ambiguously on `web`."""
+    try:
+        other = await run(client.containers.get, alias)
+    except docker.errors.NotFound:
+        return
+    if other.labels.get("console.project") != project_id:
+        raise DeployFailed(
+            f'app name "{alias}" is also the name of container "{other.name}", '
+            "so it cannot be this app's network alias; rename the app"
+        )
+
+
 class _Reaped(DeployFailed):
     """The reaper failed the row mid-deploy. Nothing to record, only the
     recreate's stopped containers to start again."""
@@ -341,7 +362,7 @@ class _Reaped(DeployFailed):
 async def _assemble_binds(
     session: AsyncSession, cfg: ConsoleConfig, project_id: str
 ) -> dict[str, dict[str, str]]:
-    if not (cfg.volumes or cfg.mounts):
+    if not (cfg.volumes or cfg.mounts or cfg.deploy.strategy == "recreate"):
         return {}
     others = []
     # Live and mid-deploy rows both claim their app's directory, so two
