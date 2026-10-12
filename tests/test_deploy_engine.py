@@ -62,7 +62,13 @@ class FakeContainer:
 
     def stop(self):
         self.stopped = True
+        self.running = False
         self.fake.events.append(("stop", self.name))
+
+    def start(self):
+        self.stopped = False
+        self.running = True
+        self.fake.events.append(("start", self.name))
 
     def remove(self, force=False):
         self.removed = True
@@ -641,3 +647,221 @@ async def test_prune_failure_never_fails_the_deploy(
 
     row = await reload(sessions, deployment.id)
     assert row.status == "live", row.failure_reason
+
+
+# Stateful apps: [[volumes]], [[mounts]], and the recreate strategy. The
+# invariant flips: the old container stops first, and a failed deploy removes
+# the new one before starting the old one again, so the two never share data.
+
+STATEFUL = """
+[app]
+name = "demo"
+subdomain = "app-demo"
+port = 80
+
+[deploy]
+strategy = "recreate"
+
+[[volumes]]
+name = "data"
+target = "/data"
+"""
+
+READER = """
+[app]
+name = "demo"
+subdomain = "app-demo"
+port = 80
+
+[[mounts]]
+from = "vault-db/data"
+target = "/source"
+"""
+
+
+@pytest.fixture
+def volume_root(monkeypatch):
+    monkeypatch.setattr(config, "VOLUME_ROOT", "/srv/volumes")
+
+
+async def add_live_project(db, app_name, toml_body):
+    """Another project with a live deployment, the way a mount source exists.
+    The project row is named apart from its app, as a rename leaves it."""
+    async with db() as session:
+        other = Project(
+            name=f"other-{app_name}",
+            repo=f"example-owner/other-{app_name}",
+            subdomain=f"other-{app_name}",
+        )
+        session.add(other)
+        await session.flush()
+        session.add(
+            Deployment(
+                project_id=other.id,
+                sha="0000000aaaa",
+                status="live",
+                config_snapshot=snapshot(toml_body),
+            )
+        )
+        await session.commit()
+
+
+def other_app(name, volumes=("data",)):
+    lines = [f'[app]\nname = "{name}"\nsubdomain = "{name}"\nport = 80\n']
+    if volumes:
+        lines.append('[deploy]\nstrategy = "recreate"\n')
+    for v in volumes:
+        lines.append(f'[[volumes]]\nname = "{v}"\ntarget = "/{v}"\n')
+    return "\n".join(lines)
+
+
+async def test_recreate_stops_old_before_starting_new(
+    sessions, fake_docker, healthy, volume_root
+):
+    project, deployment, rows = await seed(sessions, toml=STATEFUL, with_live_row=True)
+    old = fake_docker.add_live("demo-a1b2c3d", project.id, priority=config.PRIORITY_START)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "live", row.failure_reason
+    events = fake_docker.events
+    assert events.index(("stop", "demo-a1b2c3d")) < events.index(("run", "demo-e5f6a7b"))
+    assert old.removed
+    (call,) = fake_docker.run_calls
+    assert call["volumes"] == {"/srv/volumes/demo/data": {"bind": "/data", "mode": "rw"}}
+
+
+async def test_failed_recreate_removes_new_then_restarts_old(
+    sessions, fake_docker, unhealthy, volume_root
+):
+    project, deployment, _ = await seed(sessions, toml=STATEFUL, with_live_row=True)
+    old = fake_docker.add_live("demo-a1b2c3d", project.id, priority=config.PRIORITY_START)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "did not return 200" in row.failure_reason
+    assert old.running and not old.removed
+    assert "demo-e5f6a7b" not in fake_docker.by_name
+    events = fake_docker.events
+    # The invariant: never two containers on the volume at once
+    assert events.index(("remove", "demo-e5f6a7b")) < events.index(("start", "demo-a1b2c3d"))
+    assert "restarted demo-a1b2c3d" in row.log
+
+
+async def test_old_stays_stopped_if_new_cannot_be_removed(
+    sessions, fake_docker, unhealthy, volume_root
+):
+    project, deployment, _ = await seed(sessions, toml=STATEFUL, with_live_row=True)
+    old = fake_docker.add_live("demo-a1b2c3d", project.id, priority=config.PRIORITY_START)
+    real_run = fake_docker.containers.run
+
+    def run_unremovable(image, **kwargs):
+        container = real_run(image, **kwargs)
+
+        def refuse(force=False):
+            raise docker.errors.APIError("device or resource busy")
+
+        container.remove = refuse
+        return container
+
+    fake_docker.containers.run = run_unremovable
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert not old.running
+    assert "old container left stopped" in row.log
+
+
+async def test_reaped_recreate_restarts_old_and_keeps_reapers_reason(
+    sessions, fake_docker, monkeypatch, volume_root
+):
+    project, deployment, _ = await seed(sessions, toml=STATEFUL, with_live_row=True)
+    old = fake_docker.add_live("demo-a1b2c3d", project.id, priority=config.PRIORITY_START)
+
+    async def probe_then_reaped(url, timeout):
+        async with sessions() as session:
+            row = await session.get(Deployment, deployment.id)
+            row.status = "failed"
+            row.failure_reason = "deploy timed out after 90 seconds"
+            await session.commit()
+        return True, "HTTP 200"
+
+    monkeypatch.setattr(engine, "_probe", probe_then_reaped)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.failure_reason == "deploy timed out after 90 seconds"
+    assert old.running and not old.removed
+    assert "demo-e5f6a7b" not in fake_docker.by_name
+
+
+async def test_volumes_without_a_root_fail_before_touching_docker(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "VOLUME_ROOT", "")
+    project, deployment, _ = await seed(sessions, toml=STATEFUL, with_live_row=True)
+    old = fake_docker.add_live("demo-a1b2c3d", project.id, priority=config.PRIORITY_START)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "CONSOLE_VOLUME_ROOT" in row.failure_reason
+    assert not old.stopped
+    assert fake_docker.run_calls == []
+
+
+async def test_mount_of_a_live_volume_is_read_only(
+    sessions, fake_docker, healthy, volume_root
+):
+    await add_live_project(sessions, "vault-db", other_app("vault-db"))
+    _, deployment, _ = await seed(sessions, toml=READER)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "live", row.failure_reason
+    (call,) = fake_docker.run_calls
+    assert call["volumes"] == {
+        "/srv/volumes/vault-db/data": {"bind": "/source", "mode": "ro"}
+    }
+
+
+async def test_mount_of_an_undeclared_volume_fails(
+    sessions, fake_docker, healthy, volume_root
+):
+    await add_live_project(sessions, "vault-db", other_app("vault-db", volumes=("other",)))
+    _, deployment, _ = await seed(sessions, toml=READER)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert 'declares a volume "data"' in row.failure_reason
+    assert fake_docker.run_calls == []
+
+
+async def test_two_projects_cannot_share_a_volume_directory(
+    sessions, fake_docker, healthy, volume_root
+):
+    await add_live_project(sessions, "demo", other_app("demo"))
+    _, deployment, _ = await seed(sessions, toml=STATEFUL)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "must be unique" in row.failure_reason
+
+
+async def test_stateless_app_gets_no_volumes(sessions, fake_docker, healthy):
+    _, deployment, _ = await seed(sessions)
+    await engine.run_deploy(deployment.id)
+    (call,) = fake_docker.run_calls
+    assert "volumes" not in call

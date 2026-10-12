@@ -81,6 +81,10 @@ services:
       # of the console is unaffected.
       CONSOLE_CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
       CONSOLE_CF_API_TOKEN_FILE: /run/secrets/cf_api_token
+      # Where app [[volumes]] live, as a path on the Docker host (on macOS,
+      # inside a Colima mount). Blank refuses apps that declare volumes.
+      # Moving storage: stop those apps, copy the tree, change this, redeploy.
+      CONSOLE_VOLUME_ROOT: ${CONSOLE_VOLUME_ROOT:-}
     labels:
       - traefik.enable=true
       - traefik.http.routers.console.rule=Host(`console.${CONSOLE_DOMAIN}`)

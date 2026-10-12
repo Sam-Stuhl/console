@@ -10,6 +10,7 @@ deployment's priority is the live one's minus 1, counting down from
 PRIORITY_START."""
 
 import hashlib
+import posixpath
 import re
 
 from sqlalchemy import select
@@ -162,3 +163,54 @@ def build_env(cfg: ConsoleConfig, decrypted_secrets: dict[str, str]) -> dict[str
             f'"{overlap[0]}" is set in both [env] and secrets; remove one'
         )
     return {**cfg.env, **decrypted_secrets}
+
+
+def volume_path(root: str, app_name: str, volume: str) -> str:
+    """The host directory behind a volume. Docker resolves it on its own host
+    (the Colima VM on macOS), so it is joined as a POSIX path."""
+    return posixpath.join(root, app_name, volume)
+
+
+def build_binds(cfg: ConsoleConfig, root: str) -> dict[str, dict[str, str]]:
+    """Docker SDK `volumes=` for this app: its own volumes read-write, other
+    apps' volumes read-only. Empty for a stateless app."""
+    if not (cfg.volumes or cfg.mounts):
+        return {}
+    if not root:
+        raise ValueError(
+            "this app declares [[volumes]] or [[mounts]] but CONSOLE_VOLUME_ROOT "
+            "is not set, so there is nowhere to keep its data"
+        )
+    if not root.startswith("/"):
+        raise ValueError(f'CONSOLE_VOLUME_ROOT "{root}" must be an absolute path')
+    binds = {
+        volume_path(root, cfg.app.name, v.name): {"bind": v.target, "mode": "rw"}
+        for v in cfg.volumes
+    }
+    for m in cfg.mounts:
+        binds[volume_path(root, m.app, m.volume)] = {"bind": m.target, "mode": "ro"}
+    return binds
+
+
+def check_storage(cfg: ConsoleConfig, others: list[ConsoleConfig]) -> None:
+    """Rules that need the other projects' live configs.
+
+    A mount must name a volume some live app declares, so a typo fails the
+    deploy instead of mounting an empty directory Docker made up. And two
+    projects must not share an app name while either has volumes: the name is
+    the directory, so they would write into each other's data."""
+    declared = {(o.app.name, v.name) for o in others for v in o.volumes}
+    for m in cfg.mounts:
+        if (m.app, m.volume) not in declared:
+            raise ValueError(
+                f'mount from "{m.source}": no live app named "{m.app}" '
+                f'declares a volume "{m.volume}"'
+            )
+    if cfg.volumes:
+        for o in others:
+            if o.app.name == cfg.app.name:
+                raise ValueError(
+                    f'another project\'s live app is also named "{cfg.app.name}"; '
+                    "with [[volumes]] the app name must be unique, because it "
+                    "names the data directory"
+                )

@@ -156,3 +156,81 @@ def test_unknown_top_level_key_warns_not_fails():
     cfg, warnings = parse_console_toml(VALID + '\n[buildpack]\nkind = "nope"\n')
     assert cfg.app.name == "notion-sync"
     assert warnings == ['unknown top-level key "buildpack" ignored']
+
+
+# Stateful apps. Volume and app names become host path segments, so every
+# shape that could escape the volume root has to fail here.
+
+STATEFUL = """
+[app]
+name = "vault-db"
+subdomain = "vault"
+port = 5984
+
+[deploy]
+strategy = "recreate"
+
+[[volumes]]
+name = "data"
+target = "/opt/couchdb/data/"
+
+[[mounts]]
+from = "vault-bridge/export"
+target = "/source/export"
+"""
+
+
+def test_stateful_config_parses_and_round_trips():
+    from console.schema.console_toml import ConsoleConfig
+
+    parsed, warnings = parse_console_toml(STATEFUL)
+    assert warnings == []
+    assert parsed.volumes[0].target == "/opt/couchdb/data"
+    again = ConsoleConfig.model_validate_json(parsed.model_dump_json())
+    assert again.mounts[0].app == "vault-bridge"
+    assert again.mounts[0].volume == "export"
+
+
+def test_default_strategy_is_swap():
+    parsed, _ = parse_console_toml(VALID)
+    assert parsed.deploy.strategy == "swap"
+    assert parsed.volumes == [] and parsed.mounts == []
+
+
+def test_volumes_require_recreate():
+    with pytest.raises(ConfigError, match='strategy = "recreate"'):
+        parse_console_toml(STATEFUL.replace('strategy = "recreate"', 'strategy = "swap"'))
+
+
+@pytest.mark.parametrize(
+    "needle, replacement, message",
+    [
+        ('name = "data"', 'name = "../data"', "volume name"),
+        ('name = "data"', 'name = "Data"', "volume name"),
+        ('from = "vault-bridge/export"', 'from = "../export"', "mount from"),
+        ('from = "vault-bridge/export"', 'from = "vault-bridge"', "mount from"),
+        ('from = "vault-bridge/export"', 'from = "vault-db/data"', "own volume"),
+        ('target = "/source/export"', 'target = "/"', "absolute path"),
+        ('target = "/source/export"', 'target = "relative"', "absolute path"),
+        ('target = "/source/export"', 'target = "/a/../b"', '".."'),
+        ('target = "/source/export"', 'target = "/opt/couchdb/data"', "share a target"),
+        ('name = "vault-db"', 'name = "Vault DB"', "names its volumes on disk"),
+        ('strategy = "recreate"', 'strategy = "rolling"', "strategy"),
+    ],
+)
+def test_bad_storage_is_rejected(needle, replacement, message):
+    with pytest.raises(ConfigError, match=message):
+        parse_console_toml(STATEFUL.replace(needle, replacement))
+
+
+def test_duplicate_volume_names_rejected():
+    text = STATEFUL + '\n[[volumes]]\nname = "data"\ntarget = "/other"\n'
+    with pytest.raises(ConfigError, match="duplicate"):
+        parse_console_toml(text)
+
+
+def test_cross_field_errors_read_cleanly():
+    with pytest.raises(ConfigError) as info:
+        parse_console_toml(STATEFUL.replace('strategy = "recreate"', ""))
+    assert ": :" not in str(info.value)
+    assert "Value error" not in str(info.value)

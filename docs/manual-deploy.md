@@ -52,6 +52,31 @@ Mapping from console.toml:
 | `loadbalancer.server.port`        | `app.port`                              |
 | `--env-file` (or `-e` pairs)      | `[env]` + decrypted secrets             |
 | `--memory`, `--cpus`              | `[resources]`                           |
+| `-v <root>/<app>/<vol>:<target>`  | `[[volumes]]` (read-write)              |
+| `-v <root>/<app>/<vol>:<target>:ro` | `[[mounts]]` (always read-only)       |
+
+`<root>` is the install's `CONSOLE_VOLUME_ROOT`, resolved on the Docker host
+(the Colima VM on macOS, so it must sit inside a Colima mount). An app names a
+volume and a mount point; it never names a host path, so moving storage is a
+copy plus that one setting. The console never deletes anything under the root:
+data outlives deploys, rollbacks and project deletes.
+
+### Stateful apps: `[deploy] strategy = "recreate"`
+
+An app with `[[volumes]]` must use it, and the parser refuses one that does
+not, because steps 2 and 4 below would run two processes on one data
+directory. The order becomes:
+
+```bash
+docker stop app-demo-a1b2c3d          # stop, do not remove
+docker run -d --name app-demo-e5f6a7b -v ... ghcr.io/...   # then step 3
+# 200: docker rm app-demo-a1b2c3d     (the normal swap)
+# no 200: docker rm -f app-demo-e5f6a7b, THEN docker start app-demo-a1b2c3d
+```
+
+The new container is always gone before the old one starts again. If it cannot
+be removed, the old one is left stopped and the deploy fails loudly, rather
+than risk two writers. A failed recreate costs downtime, never data.
 
 Router and service names embed the deployment id so consecutive deployments
 never collide on a router name.
