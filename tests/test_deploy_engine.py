@@ -984,3 +984,32 @@ async def test_recreate_without_volumes_still_claims_a_unique_name(
     row = await reload(sessions, deployment.id)
     assert row.status == "failed"
     assert "must be unique" in row.failure_reason
+
+
+async def test_database_error_mid_recreate_still_cleans_up(
+    sessions, fake_docker, healthy, monkeypatch, volume_root
+):
+    """Seen live: SQLite "database is locked" on a log write during the health
+    check left the session needing a rollback, so the fail path itself raised
+    and nothing was cleaned up. A real failed flush (a foreign key violation)
+    puts the session in that same state."""
+    project, deployment, _ = await seed(sessions, toml=STATEFUL, with_live_row=True)
+    old = fake_docker.add_live("demo-a1b2c3d", project.id, priority=config.PRIORITY_START)
+    real_log = engine._log
+
+    async def failing_log(session, row, line):
+        if line.startswith("health check"):
+            row.project_id = "no-such-project"
+        await real_log(session, row, line)
+
+    monkeypatch.setattr(engine, "_log", failing_log)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "internal error" in row.failure_reason
+    assert "demo-e5f6a7b" not in fake_docker.by_name
+    assert old.running and not old.removed
+    events = fake_docker.events
+    assert events.index(("remove", "demo-e5f6a7b")) < events.index(("start", "demo-a1b2c3d"))
