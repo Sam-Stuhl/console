@@ -4,6 +4,13 @@ its replacement has answered a health check with 200. Old containers are
 touched in exactly two places: listed in _find_live (read only) and
 stopped in the swap, which runs only after the 200 and the swap guard.
 
+The one exception is [deploy] strategy = "recreate", which apps with volumes
+must use: two processes on one data directory corrupt it, so the old
+container is stopped (never removed) before the new one starts. Its
+invariant is the mirror image: if the new one does not go live, it is removed
+and the old one is started again, so a failed deploy costs downtime, never
+the app. Removal of the old container still happens only in the swap.
+
 Deploys for one project are serialized by a per-project asyncio.Lock;
 deploys for different projects run concurrently. A queued row that gets
 superseded or reaped while waiting for the lock is dropped by the claim
@@ -34,7 +41,12 @@ _tasks: set[asyncio.Task] = set()
 
 
 class DeployFailed(Exception):
-    """Mark the deployment failed with this message and stop."""
+    """Mark the deployment failed with this message and stop. `restart` holds
+    old containers a recreate stopped, to start again once the new one is gone."""
+
+    def __init__(self, message: str, restart: list | None = None) -> None:
+        super().__init__(message)
+        self.restart = restart or []
 
 
 def enqueue(deployment_id: str) -> None:
@@ -91,8 +103,10 @@ async def run_deploy(deployment_id: str) -> None:
                 return
             try:
                 await _deploy(session, deployment, project)
+            except _Reaped as exc:
+                await _restart(session, deployment, exc.restart, record=False)
             except DeployFailed as exc:
-                await _fail(session, deployment, str(exc))
+                await _fail(session, deployment, str(exc), restart=exc.restart)
             except Exception as exc:  # tasks must never die silently
                 await _fail(session, deployment, f"internal error: {exc!r}")
             else:
@@ -172,8 +186,9 @@ async def _deploy(
     deployment.deploy_started_at = utcnow()
     await _log(session, deployment, f"deploying {deployment.image}")
 
-    # Fail before touching Docker when the env cannot be assembled
+    # Fail before touching Docker when the env or storage cannot be assembled
     env = await _assemble_env(session, cfg, project.id)
+    binds = await _assemble_binds(session, cfg, project.id)
 
     client = get_client()
     live = await _find_live(client, project.id)
@@ -199,7 +214,42 @@ async def _deploy(
             )
         raise DeployFailed(f"image pull failed: {exc}")
 
-    # Runbook step 2: run alongside; the old container keeps serving
+    stopped = []
+    try:
+        if cfg.deploy.strategy == "recreate" and live:
+            deployment.substate = "stopping"
+            for old in live:
+                # Listed before the stop: a stop that raises may still have
+                # happened, and starting a running container is harmless.
+                stopped.append(old)
+                await run(old.stop, timeout=config.RECREATE_STOP_TIMEOUT)
+                await _log(session, deployment, f"stopped {old.name} (recreate)")
+        await _start_and_swap(
+            session, deployment, project, cfg, client, env, binds, live, name, priority
+        )
+    except DeployFailed as exc:
+        exc.restart = stopped
+        raise
+    except Exception as exc:
+        if not stopped:
+            raise
+        raise DeployFailed(f"internal error: {exc!r}", restart=stopped) from exc
+
+
+async def _start_and_swap(
+    session: AsyncSession,
+    deployment: Deployment,
+    project: Project,
+    cfg: ConsoleConfig,
+    client,
+    env: dict[str, str],
+    binds: dict[str, dict[str, str]],
+    live: list,
+    name: str,
+    priority: int,
+) -> None:
+    # Runbook step 2: run alongside; the old container keeps serving (unless
+    # a recreate already stopped it)
     deployment.substate = "starting"
     await _log(session, deployment, f"starting {name} (router priority {priority})")
     labels = plan.build_labels(
@@ -212,6 +262,9 @@ async def _deploy(
         deployment_id=deployment.id,
         sha=deployment.sha,
     )
+    storage = {"volumes": binds} if binds else {}
+    for host, spec in binds.items():
+        await _log(session, deployment, f"mount {host} -> {spec['bind']} ({spec['mode']})")
     try:
         new = await run(
             client.containers.run,
@@ -224,6 +277,7 @@ async def _deploy(
             nano_cpus=int(cfg.resources.cpus * 1_000_000_000),
             restart_policy={"Name": "unless-stopped"},
             labels=labels,
+            **storage,
         )
     except docker.errors.DockerException as exc:
         raise DeployFailed(f"container start failed: {exc}")
@@ -247,7 +301,9 @@ async def _deploy(
     await session.refresh(deployment)
     if deployment.status != "deploying":
         await run(new.remove, force=True)
-        return
+        # The reaper already failed the row; a recreate's stopped container
+        # still has to come back.
+        raise _Reaped()
 
     # Runbook step 4: swap, only after the 200
     for old in live:
@@ -272,6 +328,41 @@ async def _deploy(
     deployment.substate = None
     deployment.finished_at = utcnow()
     await _log(session, deployment, "live")
+
+
+class _Reaped(DeployFailed):
+    """The reaper failed the row mid-deploy. Nothing to record, only the
+    recreate's stopped containers to start again."""
+
+    def __init__(self) -> None:
+        super().__init__("reaped during deploy")
+
+
+async def _assemble_binds(
+    session: AsyncSession, cfg: ConsoleConfig, project_id: str
+) -> dict[str, dict[str, str]]:
+    if not (cfg.volumes or cfg.mounts):
+        return {}
+    others = []
+    # Live and mid-deploy rows both claim their app's directory, so two
+    # projects' first deploys cannot both take the same name.
+    snapshots = await session.scalars(
+        select(Deployment.config_snapshot).where(
+            Deployment.status.in_(("live", "deploying")),
+            Deployment.project_id != project_id,
+            Deployment.config_snapshot.is_not(None),
+        )
+    )
+    for snapshot in snapshots:
+        try:
+            others.append(ConsoleConfig.model_validate_json(snapshot))
+        except Exception:
+            continue  # an old snapshot this schema cannot read declares nothing
+    try:
+        plan.check_storage(cfg, others)
+        return plan.build_binds(cfg, config.VOLUME_ROOT)
+    except ValueError as exc:
+        raise DeployFailed(str(exc))
 
 
 async def _assemble_env(
@@ -345,10 +436,35 @@ async def _probe(url: str, timeout: int) -> tuple[bool, str]:
             await asyncio.sleep(config.HEALTH_POLL_INTERVAL)
 
 
-async def _fail(session: AsyncSession, deployment: Deployment, reason: str) -> None:
+async def _restart(
+    session: AsyncSession, deployment: Deployment, containers: list, record: bool = True
+) -> None:
+    """Start again the old containers a recreate stopped. Runs only after the
+    new container is gone, so the two never share a volume. Best effort per
+    container: one that will not start is logged, and the next still tries."""
+    for old in containers:
+        try:
+            await run(old.start)
+            line = f"restarted {old.name}"
+        except Exception as exc:
+            logger.warning("could not restart %s", old.name, exc_info=True)
+            line = f"could not restart {old.name}: {exc}"
+        if record:
+            deployment.log = (deployment.log or "") + line + "\n"
+    if record and containers:
+        await session.commit()
+
+
+async def _fail(
+    session: AsyncSession,
+    deployment: Deployment,
+    reason: str,
+    restart: list | None = None,
+) -> None:
     # Best-effort removal of the container this deployment created. The
     # ownership label check means an old container can never match.
     evidence = ""
+    new_gone = True
     if deployment.container_name:
         try:
             container = await run(get_client().containers.get, deployment.container_name)
@@ -358,14 +474,23 @@ async def _fail(session: AsyncSession, deployment: Deployment, reason: str) -> N
                 # console can write describes the symptom instead.
                 evidence = await _evidence(container)
                 await run(container.remove, force=True)
-        except Exception:
+        except docker.errors.NotFound:
             pass
+        except Exception:
+            new_gone = False
     deployment.status = "failed"
     deployment.substate = None
     deployment.failure_reason = reason
     deployment.finished_at = utcnow()
     deployment.log = (deployment.log or "") + evidence + f"failed: {reason}\n"
     await session.commit()
+    if restart and not new_gone:
+        # Starting the old one now could put two processes on one volume.
+        # Leaving the app down is the loud failure, and the alert says so.
+        deployment.log += "old container left stopped: the new one could not be removed\n"
+        await session.commit()
+    else:
+        await _restart(session, deployment, restart or [])
 
     # Best-effort deploy-failure alert; never let it break the fail path.
     try:

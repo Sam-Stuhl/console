@@ -95,6 +95,18 @@ IMAGE_RETENTION = int(os.environ.get("CONSOLE_IMAGE_RETENTION", "3"))
 COMMAND_TIMEOUT = 30 * 60  # wall-clock cap for a single run, seconds
 COMMAND_OUTPUT_MAX = 256 * 1024  # stored-output cap per run, bytes
 
+# Where app volumes live on the Docker host: <root>/<app name>/<volume name>.
+# One setting for the whole install, so moving storage (a new disk, a new OS)
+# is a copy plus this value; no app config names a host path. Unset means the
+# console refuses to deploy an app that declares [[volumes]] or [[mounts]].
+# The console never creates or deletes anything under it itself: Docker
+# creates a missing directory on first mount, and data outlives every deploy,
+# rollback and project delete.
+VOLUME_ROOT = os.environ.get("CONSOLE_VOLUME_ROOT", "").rstrip("/")
+# A recreate stops a database or sync engine that must flush before it dies;
+# Docker's 10 s default ends in SIGKILL, the corruption recreate exists to avoid.
+RECREATE_STOP_TIMEOUT = 60  # seconds
+
 # Off-box backup of the console's own state. The passphrase encrypts the
 # bundle and must live outside the DB it protects, so it is a mounted secret
 # like the Fernet key, never a UI setting. The destination creds ride the
