@@ -215,13 +215,15 @@ async def _deploy(
         raise DeployFailed(f"image pull failed: {exc}")
 
     stopped = []
-    if cfg.deploy.strategy == "recreate" and live:
-        deployment.substate = "stopping"
-        for old in live:
-            await run(old.stop)
-            await _log(session, deployment, f"stopped {old.name} (recreate)")
-            stopped.append(old)
     try:
+        if cfg.deploy.strategy == "recreate" and live:
+            deployment.substate = "stopping"
+            for old in live:
+                # Listed before the stop: a stop that raises may still have
+                # happened, and starting a running container is harmless.
+                stopped.append(old)
+                await run(old.stop, timeout=config.RECREATE_STOP_TIMEOUT)
+                await _log(session, deployment, f"stopped {old.name} (recreate)")
         await _start_and_swap(
             session, deployment, project, cfg, client, env, binds, live, name, priority
         )
@@ -342,9 +344,11 @@ async def _assemble_binds(
     if not (cfg.volumes or cfg.mounts):
         return {}
     others = []
+    # Live and mid-deploy rows both claim their app's directory, so two
+    # projects' first deploys cannot both take the same name.
     snapshots = await session.scalars(
         select(Deployment.config_snapshot).where(
-            Deployment.status == "live",
+            Deployment.status.in_(("live", "deploying")),
             Deployment.project_id != project_id,
             Deployment.config_snapshot.is_not(None),
         )

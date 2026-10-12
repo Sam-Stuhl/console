@@ -213,6 +213,8 @@ def test_volumes_require_recreate():
         ('target = "/source/export"', 'target = "/"', "absolute path"),
         ('target = "/source/export"', 'target = "relative"', "absolute path"),
         ('target = "/source/export"', 'target = "/a/../b"', '".."'),
+        ('target = "/source/export"', 'target = "/x:rw"', '":"'),
+        ('target = "/source/export"', 'target = "/x,y"', '":"'),
         ('target = "/source/export"', 'target = "/opt/couchdb/data"', "share a target"),
         ('name = "vault-db"', 'name = "Vault DB"', "names its volumes on disk"),
         ('strategy = "recreate"', 'strategy = "rolling"', "strategy"),
@@ -234,3 +236,9 @@ def test_cross_field_errors_read_cleanly():
         parse_console_toml(STATEFUL.replace('strategy = "recreate"', ""))
     assert ": :" not in str(info.value)
     assert "Value error" not in str(info.value)
+
+
+def test_the_same_volume_cannot_be_mounted_twice():
+    text = STATEFUL + '\n[[mounts]]\nfrom = "vault-bridge/export"\ntarget = "/elsewhere"\n'
+    with pytest.raises(ConfigError, match="same volume twice"):
+        parse_console_toml(text)

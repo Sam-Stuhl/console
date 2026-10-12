@@ -41,6 +41,8 @@ class FakeContainer:
         self.running = running
         self.stopped = False
         self.removed = False
+        self.stop_error = None
+        self.stop_timeouts = []
         self.output = []
         self.logs_error = None
         self.attrs = {"State": {"Status": "running" if running else "exited"}}
@@ -60,7 +62,10 @@ class FakeContainer:
         lines = self.output if tail is None else self.output[-tail:]
         return "".join(f"{line}\n" for line in lines).encode()
 
-    def stop(self):
+    def stop(self, timeout=None):
+        if self.stop_error:
+            raise docker.errors.APIError(self.stop_error)
+        self.stop_timeouts.append(timeout)
         self.stopped = True
         self.running = False
         self.fake.events.append(("stop", self.name))
@@ -865,3 +870,59 @@ async def test_stateless_app_gets_no_volumes(sessions, fake_docker, healthy):
     await engine.run_deploy(deployment.id)
     (call,) = fake_docker.run_calls
     assert "volumes" not in call
+
+
+async def test_recreate_gives_the_old_container_time_to_flush(
+    sessions, fake_docker, healthy, volume_root
+):
+    project, deployment, _ = await seed(sessions, toml=STATEFUL, with_live_row=True)
+    old = fake_docker.add_live("demo-a1b2c3d", project.id, priority=config.PRIORITY_START)
+
+    await engine.run_deploy(deployment.id)
+
+    assert old.stop_timeouts[0] == config.RECREATE_STOP_TIMEOUT
+
+
+async def test_a_stop_that_raises_still_restarts_what_was_stopped(
+    sessions, fake_docker, healthy, volume_root
+):
+    """Two live containers: the first stops, the second's stop errors. The
+    first must not be left down by a deploy that never started anything."""
+    project, deployment, _ = await seed(sessions, toml=STATEFUL, with_live_row=True)
+    first = fake_docker.add_live("demo-a1b2c3d", project.id, priority=config.PRIORITY_START)
+    second = fake_docker.add_live("demo-a1b2c3e", project.id, priority=config.PRIORITY_START)
+    second.stop_error = "client read timeout"
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "client read timeout" in row.failure_reason
+    assert fake_docker.run_calls == []
+    assert first.running and second.running
+    assert "restarted demo-a1b2c3d" in row.log
+
+
+async def test_a_mid_deploy_project_claims_its_app_name(
+    sessions, fake_docker, healthy, volume_root
+):
+    async with sessions() as session:
+        other = Project(name="other", repo="example-owner/other", subdomain="other")
+        session.add(other)
+        await session.flush()
+        session.add(
+            Deployment(
+                project_id=other.id,
+                sha="0000000aaaa",
+                status="deploying",
+                config_snapshot=snapshot(other_app("demo")),
+            )
+        )
+        await session.commit()
+    _, deployment, _ = await seed(sessions, toml=STATEFUL)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "must be unique" in row.failure_reason

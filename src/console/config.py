@@ -103,6 +103,9 @@ COMMAND_OUTPUT_MAX = 256 * 1024  # stored-output cap per run, bytes
 # creates a missing directory on first mount, and data outlives every deploy,
 # rollback and project delete.
 VOLUME_ROOT = os.environ.get("CONSOLE_VOLUME_ROOT", "").rstrip("/")
+# A recreate stops a database or sync engine that must flush before it dies;
+# Docker's 10 s default ends in SIGKILL, the corruption recreate exists to avoid.
+RECREATE_STOP_TIMEOUT = 60  # seconds
 
 # Off-box backup of the console's own state. The passphrase encrypts the
 # bundle and must live outside the DB it protects, so it is a mounted secret

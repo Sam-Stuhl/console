@@ -108,6 +108,9 @@ def validate_target(value: str) -> str:
         raise ValueError(f'target "{value}" must be an absolute path other than "/"')
     if any(part in (".", "..") for part in value.split("/")):
         raise ValueError(f'target "{value}" must not contain "." or ".." segments')
+    if any(ch in value for ch in ":,"):
+        # Docker's bind syntax is host:target:mode, so these would be misread
+        raise ValueError(f'target "{value}" must not contain ":" or ","')
     return value.rstrip("/")
 
 
@@ -197,6 +200,9 @@ class ConsoleConfig(BaseModel):
         targets = [v.target for v in self.volumes] + [m.target for m in self.mounts]
         if len(set(targets)) != len(targets):
             raise ValueError("two volumes or mounts share a target path")
+        sources = [m.source for m in self.mounts]
+        if len(set(sources)) != len(sources):
+            raise ValueError("mounts names the same volume twice")
         for mount in self.mounts:
             if mount.app == self.app.name:
                 raise ValueError(

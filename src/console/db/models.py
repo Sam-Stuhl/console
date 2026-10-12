@@ -94,7 +94,7 @@ class Deployment(Base):
     commit_message: Mapped[str | None] = mapped_column(Text)
     image: Mapped[str | None] = mapped_column(Text)  # full GHCR ref incl. tag
     status: Mapped[str] = mapped_column(Text)  # queued|building|deploying|live|superseded|failed
-    substate: Mapped[str | None] = mapped_column(Text)  # pulling|starting|health_check
+    substate: Mapped[str | None] = mapped_column(Text)  # pulling|stopping|starting|health_check
     run_url: Mapped[str | None] = mapped_column(Text)
     log: Mapped[str | None] = mapped_column(Text)
     failure_reason: Mapped[str | None] = mapped_column(Text)
