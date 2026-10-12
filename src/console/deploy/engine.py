@@ -482,6 +482,15 @@ async def _fail(
     reason: str,
     restart: list | None = None,
 ) -> None:
+    # The failure may itself be a database error (SQLite "database is locked"
+    # mid-deploy), which leaves the session's transaction unusable. Without
+    # this rollback every write below raised PendingRollbackError, so the new
+    # container was never removed, a recreate's old one never restarted, and
+    # the row sat in "deploying" until the reaper failed it.
+    await session.rollback()
+    # Rollback expires the row; reload it here, since an implicit lazy load
+    # is not allowed in async code.
+    await session.refresh(deployment)
     # Best-effort removal of the container this deployment created. The
     # ownership label check means an old container can never match.
     evidence = ""
