@@ -206,11 +206,18 @@ def check_storage(cfg: ConsoleConfig, others: list[ConsoleConfig]) -> None:
                 f'mount from "{m.source}": no live app named "{m.app}" '
                 f'declares a volume "{m.volume}"'
             )
-    if cfg.volumes:
+    if cfg.volumes or cfg.deploy.strategy == "recreate":
         for o in others:
             if o.app.name == cfg.app.name:
                 raise ValueError(
                     f'another project\'s live app is also named "{cfg.app.name}"; '
-                    "with [[volumes]] the app name must be unique, because it "
-                    "names the data directory"
+                    "with [[volumes]] or recreate the app name must be unique, "
+                    "because it names the data directory and the network alias"
                 )
+
+
+def network_alias(cfg: ConsoleConfig) -> str | None:
+    """A stable name other containers can reach this app by, the same across
+    deploys (container names carry the sha). Only for recreate apps: they never
+    run two containers at once, so the alias never points at an unverified one."""
+    return cfg.app.name if cfg.deploy.strategy == "recreate" else None

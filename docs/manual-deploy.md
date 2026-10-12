@@ -74,6 +74,13 @@ docker run -d --name app-demo-e5f6a7b -v ... ghcr.io/...   # then step 3
 # no 200: docker rm -f app-demo-e5f6a7b, THEN docker start app-demo-a1b2c3d
 ```
 
+A recreate app also joins `web` with its app name as a network alias
+(`--network-alias <app name>`), so other apps reach it at the same address on
+every deploy, for example `http://vault-db:5984`. Only recreate apps get one:
+they never run two containers at once, so the alias never points at one that
+has not passed its health check. The alias may not equal another container's
+name.
+
 The new container is always gone before the old one starts again. If it cannot
 be removed, the old one is left stopped and the deploy fails loudly, rather
 than risk two writers. A failed recreate costs downtime, never data.

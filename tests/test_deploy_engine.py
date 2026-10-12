@@ -126,8 +126,14 @@ class FakeImages:
         self.fake.removed_images.append(image)
 
 
+class FakeApi:
+    def create_endpoint_config(self, aliases=None):
+        return {"Aliases": aliases}
+
+
 class FakeDocker:
     def __init__(self):
+        self.api = FakeApi()
         self.by_name = {}
         self.events = []
         self.run_calls = []
@@ -920,6 +926,58 @@ async def test_a_mid_deploy_project_claims_its_app_name(
         )
         await session.commit()
     _, deployment, _ = await seed(sessions, toml=STATEFUL)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "must be unique" in row.failure_reason
+
+
+# A recreate app gets its app name as a network alias, so other apps can reach
+# it at the same address across deploys (vault-bridge -> http://vault-db:5984).
+
+
+async def test_recreate_app_gets_its_name_as_a_network_alias(
+    sessions, fake_docker, healthy, volume_root
+):
+    _, deployment, _ = await seed(sessions, toml=STATEFUL)
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "live", row.failure_reason
+    (call,) = fake_docker.run_calls
+    assert call["networking_config"] == {"web": {"Aliases": ["demo"]}}
+    assert "network alias demo" in row.log
+
+
+async def test_swap_app_gets_no_alias(sessions, fake_docker, healthy):
+    _, deployment, _ = await seed(sessions)
+    await engine.run_deploy(deployment.id)
+    (call,) = fake_docker.run_calls
+    assert "networking_config" not in call
+
+
+async def test_alias_may_not_shadow_another_container(
+    sessions, fake_docker, healthy, volume_root
+):
+    fake_docker.add_live("demo", "not-this-project")  # e.g. traefik, console
+    _, deployment, _ = await seed(sessions, toml=STATEFUL)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert 'name of container "demo"' in row.failure_reason
+    assert fake_docker.run_calls == []
+
+
+async def test_recreate_without_volumes_still_claims_a_unique_name(
+    sessions, fake_docker, healthy, volume_root
+):
+    await add_live_project(sessions, "demo", other_app("demo", volumes=()))
+    stateless_recreate = TOML + '\n[deploy]\nstrategy = "recreate"\n'
+    _, deployment, _ = await seed(sessions, toml=stateless_recreate)
 
     await engine.run_deploy(deployment.id)
 
