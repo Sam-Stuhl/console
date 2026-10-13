@@ -144,8 +144,8 @@ class System(BaseModel):
     domains: list[str]
     primary_domain: str
     projects: int
-    live: int
-    down: int
+    live: int  # deployed and not down
+    down: int  # failing the monitor's health check
     deploying: int
     credentials: list[Credential]
     backups_ready: bool
