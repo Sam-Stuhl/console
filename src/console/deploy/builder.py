@@ -370,6 +370,15 @@ async def resume_after_restart(session: AsyncSession) -> list[str]:
 async def _fail(
     session: AsyncSession, deployment: Deployment, project: Project, reason: str
 ) -> None:
+    # The failure may itself be a database error, which leaves the session's
+    # transaction unusable; without this the writes below raised
+    # PendingRollbackError and the row sat in "building" until the reaper.
+    # Same fix as the deploy engine's _fail.
+    await session.rollback()
+    # Rollback expires every loaded row; reload both explicitly, since an
+    # implicit lazy load is not allowed in async code.
+    await session.refresh(deployment)
+    await session.refresh(project)
     deployment.status = "failed"
     deployment.failure_reason = reason
     deployment.finished_at = utcnow()

@@ -8,6 +8,9 @@ __pycache__/
 !*.env.example
 console.db
 console-*.db
+# SQLite write-ahead log files (the database runs in WAL mode)
+*.db-wal
+*.db-shm
 .DS_Store
 .console_key*
 .vscode/

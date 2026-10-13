@@ -373,3 +373,25 @@ async def test_a_restart_clears_leftover_builds_and_builds_again(db, fake_docker
     assert listed == [{"name": "console-build-"}]
     assert leftover.removed
     assert resumed == enqueued == [building.id]
+
+
+async def test_fail_survives_a_poisoned_session(db):
+    """Seen live: "database is locked" on a log append mid-build left the
+    session needing a rollback, so _fail raised and the row sat in
+    "building". A real failed flush (foreign key violation) reproduces it."""
+    import sqlalchemy.exc
+
+    project, deployment = await seed(db)
+    async with db() as session:
+        row = await session.get(Deployment, deployment.id)
+        proj = await session.get(Project, project.id)
+        row.project_id = "no-such-project"
+        try:
+            await session.commit()
+        except sqlalchemy.exc.IntegrityError:
+            pass
+        await builder._fail(session, row, proj, "internal error: database is locked")
+
+    row = await reload(db, deployment.id)
+    assert row.status == "failed"
+    assert "database is locked" in row.failure_reason
