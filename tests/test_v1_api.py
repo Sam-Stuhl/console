@@ -12,7 +12,7 @@ import docker.errors
 import pytest
 
 from console import config, tokens
-from console.db.models import Deployment, Project, Secret, utcnow
+from console.db.models import Deployment, Project, ProjectHealth, Secret, utcnow
 from console.secrets import crypto
 from console.v1.rest import router as v1_router
 
@@ -282,6 +282,24 @@ async def test_system_summarizes_the_install(client, project, read_auth):
     assert body["live"] == 0
     assert body["primary_domain"] in body["domains"]
     assert isinstance(body["credentials"], list)
+
+
+async def test_system_live_and_down_do_not_overlap(client, db, project, read_auth):
+    async with db() as session:
+        session.add(
+            Deployment(
+                project_id=project["id"],
+                sha="aaa",
+                status="live",
+                image="img",
+                config_snapshot="{}",
+                deploy_started_at=utcnow(),
+            )
+        )
+        session.add(ProjectHealth(project_id=project["id"], state="down"))
+        await session.commit()
+    body = (await client.get("/v1/system", headers=read_auth)).json()
+    assert (body["projects"], body["live"], body["down"]) == (1, 0, 1)
 
 
 async def test_deployments_are_listed_newest_first(client, db, project, read_auth):

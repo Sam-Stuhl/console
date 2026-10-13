@@ -604,7 +604,9 @@ async def get_system(session: AsyncSession, today: date | None = None) -> models
         domains=await domains.available(session),
         primary_domain=config.DOMAIN,
         projects=len(projects),
-        live=sum(1 for p in projects if p.is_live),
+        # Deployed and not failing its health check, so live and down never
+        # overlap: two agents read "13 live, 1 down" of 13 as a miscount.
+        live=sum(1 for p in projects if p.is_live and p.health != "down"),
         down=sum(1 for p in projects if p.health == "down"),
         deploying=sum(1 for p in projects if p.deploy_status in history.IN_FLIGHT),
         credentials=[
