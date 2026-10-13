@@ -342,7 +342,9 @@ that matters.
    and confirm a bundle lands in the repo.
 
 Backups then run nightly and prune to the retention count. Restore with
-`python -m console.backup.restore <bundle>` (it prompts for the passphrase); pull
+`python -m console.backup.restore <bundle>` (it prompts for the passphrase).
+The database runs in WAL mode, so when putting a restored `console.db` in
+place, delete any `console.db-wal` and `console.db-shm` beside it first; pull
 the backups repo with `git clone`, not a browser or `gh` download, which mangles
 the binary. The passphrase can instead be a mounted secret
 (`CONSOLE_BACKUP_PASSPHRASE_FILE`) if you prefer files over Settings; either way,

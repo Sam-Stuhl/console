@@ -51,7 +51,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"restored console.db and console_key to {out}/")
     print("to use them: stop the console, put console.db at CONSOLE_DB_PATH and")
-    print("console_key at CONSOLE_KEY_FILE, then start it again.")
+    print("console_key at CONSOLE_KEY_FILE, delete any console.db-wal and")
+    print("console.db-shm next to it (the old database's write-ahead log, which")
+    print("SQLite would otherwise replay onto the restored file), then start it again.")
     return 0
 
 
