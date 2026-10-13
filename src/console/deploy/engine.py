@@ -335,6 +335,44 @@ async def _start_and_swap(
     deployment.substate = None
     deployment.finished_at = utcnow()
     await _log(session, deployment, "live")
+    await _sync_subdomain(session, deployment, project, cfg)
+
+
+async def _sync_subdomain(
+    session: AsyncSession, deployment: Deployment, project: Project, cfg: ConsoleConfig
+) -> None:
+    """Traefik routes the subdomain in the repo's console.toml, so once a deploy
+    is live that is where the app answers. The record is brought into line, or
+    the console shows a URL that 404s: Cedar served at cedar.kosmoskit.com for
+    weeks while its record said planner (2026-10-12). Skipped, and logged, if
+    another project already holds that subdomain."""
+    wanted = cfg.app.subdomain
+    if wanted == project.subdomain:
+        return
+    taken = await session.scalar(
+        select(Project).where(Project.subdomain == wanted, Project.id != project.id)
+    )
+    if taken is not None:
+        await _log(
+            session,
+            deployment,
+            f'console.toml says subdomain "{wanted}", which {taken.name} holds; '
+            f'the record keeps "{project.subdomain}"',
+        )
+        return
+    old = project.subdomain
+    # Set before the log line, which is what commits.
+    project.subdomain = wanted
+    await _log(
+        session,
+        deployment,
+        f'subdomain "{old}" -> "{wanted}", from console.toml'
+        + (
+            "; its Cloudflare Access gate is still on the old hostname"
+            if project.protected
+            else ""
+        ),
+    )
 
 
 async def _check_alias(client, alias: str, project_id: str) -> None:
