@@ -261,6 +261,28 @@ async def test_first_deploy_goes_live(sessions, fake_docker, healthy):
     assert labels["console.deployment"] == deployment.id
 
 
+async def test_live_deploy_syncs_the_subdomain_from_console_toml(sessions, fake_docker, healthy):
+    """The router rule comes from console.toml; the record follows it."""
+    project, deployment, _ = await seed(sessions, toml=TOML.replace('"app-demo"', '"cedar"'))
+    await engine.run_deploy(deployment.id)
+
+    async with sessions() as session:
+        assert (await session.get(Project, project.id)).subdomain == "cedar"
+    assert 'subdomain "app-demo" -> "cedar"' in (await reload(sessions, deployment.id)).log
+
+
+async def test_subdomain_sync_never_takes_another_projects(sessions, fake_docker, healthy):
+    async with sessions() as session:
+        session.add(Project(name="other", repo="example-owner/other", subdomain="cedar"))
+        await session.commit()
+    project, deployment, _ = await seed(sessions, toml=TOML.replace('"app-demo"', '"cedar"'))
+    await engine.run_deploy(deployment.id)
+
+    async with sessions() as session:
+        assert (await session.get(Project, project.id)).subdomain == "app-demo"
+    assert "which other holds" in (await reload(sessions, deployment.id)).log
+
+
 async def test_swap_happens_only_after_health(sessions, fake_docker, healthy):
     project, deployment, rows = await seed(sessions, with_live_row=True)
     old = fake_docker.add_live(

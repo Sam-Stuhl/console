@@ -330,8 +330,8 @@ async def set_domain(
 
     A subdomain change is only half the move, and the half the console cannot
     make: the router rule is built from the repo's console.toml, so app.subdomain
-    has to change there too or the next deploy routes the old hostname back. The
-    note says so.
+    has to change there too or the next deploy routes the old hostname back, and
+    puts the record back to match (engine._sync_subdomain). The note says so.
 
     If the app is protected by Cloudflare Access, its login gate is tied to the
     old hostname. "auto" recreates the gate for the new hostname (creating the
