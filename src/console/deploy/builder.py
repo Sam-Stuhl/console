@@ -7,9 +7,12 @@ publish path that depends on someone else's billing is not a publish path.
 
 The build itself happens in a one-shot docker CLI container (BUILD_IMAGE)
 that attaches to a BuildKit builder the host created with memory and CPU
-caps, so a build can never take the box down with it. The repo is a remote
-git context fetched by BuildKit with the console's GitHub token, so nothing
-is checked out on the box and no git credentials live there. Builds are
+caps, so a build can never take the box down with it. A GitHub repo is a
+remote git context fetched by BuildKit with the console's GitHub token, so
+nothing is checked out on the box and no git credentials live there. A
+Forgejo repo is cloned inside the throwaway CLI container instead, which joins
+the console's network to reach the instance, and is sent to BuildKit as a
+local context: BuildKit's own container is not on that network. Builds are
 serialized console-wide by one lock: the box serves while it builds, and one
 capped build at a time is the budget.
 
@@ -25,7 +28,7 @@ import docker.errors
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import alerts, config, github, settings_store
+from console import alerts, config, forgejo, github, settings_store, sources
 from console.db.models import Deployment, Project, utcnow
 from console.db.session import SessionLocal
 from console.deploy import engine as deploy_engine, plan
@@ -65,6 +68,24 @@ docker buildx build --builder "$BUILDER" --platform linux/amd64 --provenance=fal
 docker buildx prune --builder "$BUILDER" --reserved-space 5g -f >/dev/null
 """
 
+# The same build for a repo on Forgejo. The token rides git's environment
+# config (GIT_CONFIG_*), set in the container's environment, so it is never an
+# argument. The clone is a single commit, and .git is dropped before the
+# build so history never reaches the builder. Submodules are not fetched.
+FORGEJO_SCRIPT = """\
+set -eu
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null
+mkdir /src && cd /src
+git init -q
+git fetch -q --depth 1 "$GIT_URL" "$GIT_SHA"
+git -c advice.detachedHead=false checkout -q FETCH_HEAD
+rm -rf .git
+docker buildx create --name "$BUILDER" --driver remote "docker-container://buildx_buildkit_${BUILDER}0" >/dev/null
+docker buildx build --builder "$BUILDER" --platform linux/amd64 --provenance=false \\
+  -f "$DOCKERFILE" -t "$IMAGE" --push .
+docker buildx prune --builder "$BUILDER" --reserved-space 5g -f >/dev/null
+"""
+
 
 class BuildFailed(Exception):
     """Mark the deployment failed with this message and stop."""
@@ -77,11 +98,11 @@ def enqueue(deployment_id: str) -> None:
     task.add_done_callback(_tasks.discard)
 
 
-def image_for(repo: str, sha: str) -> str:
-    """The image the build publishes: the same name and tag the Actions
-    workflow used, so history reads the same either way. GHCR requires a
-    lowercase path; a repo can be registered in any case."""
-    return f"ghcr.io/{repo.lower()}:{sha[:7]}"
+def image_for(project: Project, sha: str) -> str:
+    """The image the build publishes: for a GitHub project the same name and
+    tag the Actions workflow used, so history reads the same either way. GHCR
+    requires a lowercase path; a repo can be registered in any case."""
+    return sources.image_for(project, sha)
 
 
 def git_context(repo: str, sha: str) -> str:
@@ -97,8 +118,8 @@ async def request_build(
     a sha it already knows."""
     git_ref = (ref or project.branch).strip() or project.branch
     try:
-        token = await github.resolve_token(session)
-        sha, message = await github.GitHub(token).resolve_commit(project.repo, git_ref)
+        source = await sources.client(session, project.git_provider)
+        sha, message = await source.resolve_commit(project.repo, git_ref)
     except github.GitHubNotConnected as exc:
         raise Unavailable(str(exc))
     except github.FileNotFound:
@@ -114,8 +135,8 @@ async def set_auto_build(session: AsyncSession, project: Project, enabled: bool)
     "build now" is for the head that is already there."""
     if enabled and not project.auto_build:
         try:
-            token = await github.resolve_token(session)
-            sha, _ = await github.GitHub(token).resolve_commit(project.repo, project.branch)
+            source = await sources.client(session, project.git_provider)
+            sha, _ = await source.resolve_commit(project.repo, project.branch)
         except github.GitHubNotConnected as exc:
             raise Unavailable(str(exc))
         except github.FileNotFound:
@@ -126,6 +147,41 @@ async def set_auto_build(session: AsyncSession, project: Project, enabled: bool)
     if not enabled:
         project.watched_sha = None
     project.auto_build = enabled
+    await session.commit()
+
+
+async def set_git_provider(
+    session: AsyncSession, project: Project, provider: str
+) -> None:
+    """Move a project to another git provider. With build on push on, the new
+    provider's branch head is read first and taken as seen, the same way
+    enabling does, so the switch itself never builds; it also proves the repo
+    is there before anything changes."""
+    try:
+        sources.check_provider(provider)
+    except ValueError as exc:
+        raise Invalid(str(exc))
+    if provider == project.git_provider:
+        return
+    candidate = Project(repo=project.repo, git_provider=provider)
+    candidate.id = project.id
+    other = await sources.image_conflict(session, candidate)
+    if other is not None:
+        raise Conflict(
+            f'project "{other.name}" already publishes to {sources.image_hint(candidate)}'
+        )
+    if project.auto_build:
+        try:
+            source = await sources.client(session, provider)
+            sha, _ = await source.resolve_commit(project.repo, project.branch)
+        except github.GitHubNotConnected as exc:
+            raise Unavailable(str(exc))
+        except github.FileNotFound:
+            raise Invalid(f'no branch "{project.branch}" in {project.repo} on {provider}')
+        except github.GitHubApiError as exc:
+            raise Upstream(str(exc))
+        project.watched_sha = sha
+    project.git_provider = provider
     await session.commit()
 
 
@@ -173,8 +229,10 @@ async def run_build(deployment_id: str) -> None:
 async def _build(session: AsyncSession, deployment: Deployment, project: Project) -> None:
     # Everything that can fail before Docker is touched, fails here first.
     try:
-        github_token = await github.resolve_token(session)
+        source = await sources.client(session, project.git_provider)
     except github.GitHubNotConnected as exc:
+        raise BuildFailed(str(exc))
+    except github.GitHubApiError as exc:
         raise BuildFailed(str(exc))
     ghcr_token = await settings_store.get(session, settings_store.GHCR_TOKEN)
     if not ghcr_token:
@@ -184,9 +242,7 @@ async def _build(session: AsyncSession, deployment: Deployment, project: Project
         )
     short = deployment.sha[:7]
     try:
-        text = await github.GitHub(github_token).read_file(
-            project.repo, CONSOLE_TOML, deployment.sha
-        )
+        text = await source.read_file(project.repo, CONSOLE_TOML, deployment.sha)
     except github.FileNotFound:
         raise BuildFailed(f"no {CONSOLE_TOML} in {project.repo} at {short}")
     except github.GitHubApiError as exc:
@@ -196,10 +252,41 @@ async def _build(session: AsyncSession, deployment: Deployment, project: Project
     except ConfigError as exc:
         raise BuildFailed(str(exc))
 
-    image = image_for(project.repo, deployment.sha)
-    await _log(session, deployment, f"building {image} from {project.repo}@{short}")
+    image = image_for(project, deployment.sha)
+    origin = project.repo
+    if project.git_provider != sources.GITHUB:
+        origin = f"{project.git_provider} {origin}"
+    await _log(session, deployment, f"building {image} from {origin}@{short}")
     for warning in warnings:
         await _log(session, deployment, f"warning: {warning}")
+
+    environment = {
+        "GHCR_USER": config.OIDC_OWNER,
+        "GHCR_TOKEN": ghcr_token,
+        "BUILDER": config.BUILD_BUILDER,
+        "DOCKERFILE": cfg.app.dockerfile,
+        "IMAGE": image,
+    }
+    if project.git_provider == sources.FORGEJO:
+        base_url, forgejo_token = await forgejo.resolve(session)
+        script = FORGEJO_SCRIPT
+        environment |= {
+            "GIT_URL": forgejo.clone_url(base_url, project.repo),
+            "GIT_SHA": deployment.sha,
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": f"http.{base_url}/.extraHeader",
+            "GIT_CONFIG_VALUE_0": f"Authorization: token {forgejo_token}",
+        }
+        # The instance is reached on the network the apps share (the one the
+        # engine starts them on), not through its public hostname.
+        extra = {"network": "web"}
+    else:
+        script = SCRIPT
+        environment |= {
+            "GIT_AUTH_TOKEN": await github.resolve_token(session),
+            "CONTEXT": git_context(project.repo, deployment.sha),
+        }
+        extra = {}
 
     client = get_client()
     name = f"console-build-{deployment.id[:6]}"
@@ -207,19 +294,12 @@ async def _build(session: AsyncSession, deployment: Deployment, project: Project
         container = await run(
             client.containers.run,
             config.BUILD_IMAGE,
-            ["sh", "-c", SCRIPT],
+            ["sh", "-c", script],
             detach=True,
             name=name,
-            environment={
-                "GHCR_USER": config.OIDC_OWNER,
-                "GHCR_TOKEN": ghcr_token,
-                "GIT_AUTH_TOKEN": github_token,
-                "BUILDER": config.BUILD_BUILDER,
-                "DOCKERFILE": cfg.app.dockerfile,
-                "IMAGE": image,
-                "CONTEXT": git_context(project.repo, deployment.sha),
-            },
+            environment=environment,
             volumes={DOCKER_SOCKET: {"bind": DOCKER_SOCKET, "mode": "rw"}},
+            **extra,
         )
     except docker.errors.DockerException as exc:
         raise BuildFailed(f"could not start the build container: {exc}")

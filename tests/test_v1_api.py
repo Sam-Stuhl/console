@@ -132,6 +132,7 @@ WRITE_ROUTES = [
     ("delete", "/v1/projects/blog"),
     ("put", "/v1/projects/blog/access"),
     ("put", "/v1/projects/blog/domain"),
+    ("put", "/v1/projects/blog/git-provider"),
     ("post", "/v1/projects/blog/deployments/d1/rollback"),
     ("post", "/v1/projects/blog/deployments/d1/redeploy"),
     ("post", "/v1/projects/blog/controls/restart"),
@@ -392,6 +393,65 @@ async def test_write_token_can_create_and_delete_a_project(client, write_auth):
         await client.delete("/v1/projects/docs", headers=write_auth)
     ).status_code == 204
     assert (await client.get("/v1/projects/docs", headers=write_auth)).status_code == 404
+
+
+async def test_a_project_builds_from_github_unless_told_otherwise(client, project, read_auth):
+    body = (await client.get("/v1/projects/blog", headers=read_auth)).json()
+    assert body["git_provider"] == "github"
+
+
+async def test_create_a_forgejo_project(client, write_auth, monkeypatch):
+    monkeypatch.setattr(config, "OIDC_OWNER", "Example-Owner")
+    res = await client.post(
+        "/v1/projects",
+        json={
+            "name": "Canary",
+            "repo": "sam/Canary",
+            "subdomain": "canary",
+            "git_provider": "forgejo",
+        },
+        headers=write_auth,
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["git_provider"] == "forgejo"
+    # A Forgejo owner is not a GHCR namespace: the image goes under the
+    # trusted owner, named after the repo.
+    assert body["image_hint"] == "ghcr.io/example-owner/canary:"
+
+
+async def test_create_refuses_a_forgejo_repo_on_another_projects_image(
+    client, project, write_auth, monkeypatch
+):
+    # The project fixture is GitHub "owner/blog"; a Forgejo "sam/blog" would
+    # publish to ghcr.io/owner/blog as well and overwrite its images.
+    monkeypatch.setattr(config, "OIDC_OWNER", "owner")
+    res = await client.post(
+        "/v1/projects",
+        json={"name": "B2", "repo": "sam/blog", "subdomain": "b2", "git_provider": "forgejo"},
+        headers=write_auth,
+    )
+    assert res.status_code == 409
+    assert "ghcr.io/owner/blog:" in res.json()["detail"]
+
+
+async def test_create_rejects_an_unknown_git_provider(client, write_auth):
+    res = await client.post(
+        "/v1/projects",
+        json={"name": "X", "repo": "owner/x", "subdomain": "x", "git_provider": "gitlab"},
+        headers=write_auth,
+    )
+    assert res.status_code == 422
+
+
+async def test_switch_git_provider_without_build_on_push(client, project, write_auth):
+    res = await client.put(
+        "/v1/projects/blog/git-provider",
+        json={"git_provider": "forgejo"},
+        headers=write_auth,
+    )
+    assert res.status_code == 200
+    assert res.json()["git_provider"] == "forgejo"
 
 
 async def test_create_rejects_a_malformed_repo(client, write_auth):

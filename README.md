@@ -38,6 +38,8 @@ The safety invariant: the live container is never stopped until its replacement 
 
 Nothing calls into the console to make this happen: it polls GitHub through the connection it already holds, so there is no webhook, no shared secret, and no path that has to skip the login. The build runs in a BuildKit builder created once on the host with memory and CPU caps, and one build runs at a time.
 
+A project can instead build from a self-hosted Forgejo (or Gitea), chosen per project. Save the instance's URL as the console reaches it (on the same box, the container's address on the apps' network, such as `http://forgejo:3000`) and an access token with `repository: read` in Settings, then pick `forgejo` as the project's source. The watcher polls Forgejo the same way, the build container clones the commit over that network and hands it to the same builder, and the image goes to the same GHCR namespace, so deploys, health checks and rollback do not change. Every project is GitHub unless set otherwise. Rolling the console back to an image from before this setting existed needs `alembic downgrade d0e1f2a3b4c5` first (see the migration).
+
 ## Architecture
 
 - **Backend**: FastAPI, SQLAlchemy 2.0 async, Alembic migrations, and the Docker SDK for container operations. Secrets use Fernet with the key supplied via `CONSOLE_KEY_FILE` (never in git); without it the console runs but secret operations return a clear 503.

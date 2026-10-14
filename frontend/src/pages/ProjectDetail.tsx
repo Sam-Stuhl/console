@@ -75,14 +75,22 @@ export default function ProjectDetail() {
             <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm sm:grid-cols-[auto_1fr_auto_1fr]">
               <dt className="font-mono text-xs leading-6 text-muted">repo</dt>
               <dd className="truncate font-mono text-xs leading-6">
-                <a
-                  href={`https://github.com/${project.repo}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:text-primary"
-                >
-                  {project.repo}
-                </a>
+                {project.git_provider === 'github' ? (
+                  <a
+                    href={`https://github.com/${project.repo}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-primary"
+                  >
+                    {project.repo}
+                  </a>
+                ) : (
+                  // The saved Forgejo URL is how the console reaches it, often
+                  // an internal address, so there is no public link to offer.
+                  <>
+                    {project.repo} <span className="text-faint">on {project.git_provider}</span>
+                  </>
+                )}
               </dd>
               <dt className="font-mono text-xs leading-6 text-muted">subdomain</dt>
               <dd className="truncate font-mono text-xs leading-6">{project.subdomain}</dd>
@@ -133,6 +141,7 @@ export default function ProjectDetail() {
             branch={project.branch}
             imageHint={project.image_hint}
             autoBuild={project.auto_build}
+            gitProvider={project.git_provider}
           />
         )}
       </Section>

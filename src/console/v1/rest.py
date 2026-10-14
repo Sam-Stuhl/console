@@ -10,6 +10,8 @@ Routes are thin on purpose: resolve the caller's token, call service, translate
 console.errors into status codes. Anything that changes state depends on
 require_write, so a read-only token cannot reach it."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
@@ -86,10 +88,17 @@ def openapi_schema() -> dict:
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=64)
-    repo: str = Field(description='"owner/name" on GitHub')
+    repo: str = Field(description='"owner/name" on the git provider')
     subdomain: str
     branch: str = Field(default="main", min_length=1, max_length=100)
     domain: str | None = Field(default=None, description="null means the primary domain")
+    git_provider: Literal["github", "forgejo"] = Field(
+        default="github", description="where the repo lives"
+    )
+
+
+class GitProviderUpdate(BaseModel):
+    git_provider: Literal["github", "forgejo"]
 
 
 class AccessUpdate(BaseModel):
@@ -249,6 +258,7 @@ async def create_project(
         subdomain=body.subdomain.strip(),
         branch=body.branch.strip(),
         domain=body.domain,
+        git_provider=body.git_provider,
     )
 
 
@@ -358,6 +368,16 @@ async def set_domain(
     _=Depends(require_write),
 ) -> models.DomainChange:
     return await service.set_domain(session, project, body.domain, body.repoint)
+
+
+@router.put("/projects/{project}/git-provider", summary="Build from GitHub or Forgejo")
+async def set_git_provider(
+    project: str,
+    body: GitProviderUpdate,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(require_write),
+) -> models.Project:
+    return await service.set_git_provider(session, project, body.git_provider)
 
 
 @router.post(

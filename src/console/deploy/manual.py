@@ -10,7 +10,7 @@ the config comes from) are facts about deploying, not about who asked."""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import github
+from console import github, sources
 from console.db.models import Deployment, Project
 from console.deploy import engine as deploy_engine, plan
 from console.errors import Invalid, Unavailable, Upstream
@@ -29,9 +29,8 @@ async def resolve_config(
     deployed without retyping its config."""
     if pasted is None:
         try:
-            pasted = await github.GitHub(
-                await github.resolve_token(session)
-            ).read_file(project.repo, CONSOLE_TOML, ref)
+            source = await sources.client(session, project.git_provider)
+            pasted = await source.read_file(project.repo, CONSOLE_TOML, ref)
         except github.GitHubNotConnected as exc:
             raise Unavailable(str(exc))
         except github.FileNotFound:

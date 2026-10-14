@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import access_paths, appicon, cloudflare, config, domains
+from console import access_paths, appicon, cloudflare, config, domains, sources
 from console.db.models import Project, ProjectHealth
 from console.db.session import get_session
 from console.deploy import builder
@@ -28,6 +28,8 @@ class ProjectCreate(BaseModel):
     branch: str = Field(default="main", min_length=1, max_length=100)
     subdomain: str
     domain: str | None = None  # None means the primary CONSOLE_DOMAIN
+    # Where the repo lives. GitHub unless asked otherwise.
+    git_provider: Literal["github", "forgejo"] = "github"
 
 
 class ProjectOut(BaseModel):
@@ -47,6 +49,7 @@ class ProjectOut(BaseModel):
     deploy_status: str | None  # latest deployment's status (queued/building/deploying/live/failed/…)
     is_live: bool  # a deployment is currently live (serving), independent of the monitor ping
     auto_build: bool  # a push to the tracked branch is built on the box and deployed
+    git_provider: str  # where the repo lives: github | forgejo
     # What CI tags this project's images as, minus the tag: the prefill for the
     # deploy-an-image form, so only a tag has to be typed. Derived, never stored.
     image_hint: str
@@ -54,6 +57,10 @@ class ProjectOut(BaseModel):
 
 class AutoBuildUpdate(BaseModel):
     enabled: bool
+
+
+class GitProviderUpdate(BaseModel):
+    git_provider: Literal["github", "forgejo"]
 
 
 class BuildRequest(BaseModel):
@@ -113,8 +120,9 @@ def _out(
         deploy_status=deploy_status,
         is_live=is_live,
         auto_build=project.auto_build,
+        git_provider=project.git_provider,
         # GHCR paths are lowercase, which is what the build workflow pushes to.
-        image_hint=f"ghcr.io/{project.repo.lower()}:",
+        image_hint=sources.image_hint(project),
     )
 
 
@@ -167,6 +175,12 @@ async def create_project(
                 detail=f'a project with {field} "{value}" already exists',
             )
     project = Project(**body.model_dump())
+    other = await sources.image_conflict(session, project)
+    if other is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f'project "{other.name}" already publishes to {sources.image_hint(project)}',
+        )
     session.add(project)
     await session.commit()
     return _out(project)
@@ -230,6 +244,35 @@ async def set_auto_build(
         await builder.set_auto_build(session, project, body.enabled)
     except Invalid as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Unavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Upstream as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    health = await session.get(ProjectHealth, project_id)
+    latest, live = await deploy_state(session)
+    return _out(
+        project,
+        health.state if health else "unknown",
+        latest.get(project_id),
+        project_id in live,
+    )
+
+
+@router.put("/{project_id}/git-provider")
+async def set_git_provider(
+    project_id: str,
+    body: GitProviderUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> ProjectOut:
+    """Build this project from GitHub or from Forgejo from now on. With build
+    on push on, the new provider's branch head is taken as already seen."""
+    project = await get_project(project_id, session)
+    try:
+        await builder.set_git_provider(session, project, body.git_provider)
+    except Invalid as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Conflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except Unavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except Upstream as exc:

@@ -239,10 +239,16 @@ async def run_command(project: str, command: str) -> dict:
 
 @server.tool()
 async def create_project(
-    name: str, repo: str, subdomain: str, branch: str = "main", domain: str | None = None
+    name: str,
+    repo: str,
+    subdomain: str,
+    branch: str = "main",
+    domain: str | None = None,
+    git_provider: str = "github",
 ) -> dict:
     """Register a new project. Requires a write token. repo is "owner/name" on
-    GitHub; domain defaults to the console's primary domain."""
+    the git provider, which is "github" (the default) or "forgejo"; domain
+    defaults to the console's primary domain."""
     _require_write()
     return await _call(
         service.create_project,
@@ -251,6 +257,7 @@ async def create_project(
         subdomain=subdomain,
         branch=branch,
         domain=domain,
+        git_provider=git_provider,
     )
 
 
