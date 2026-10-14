@@ -1,7 +1,8 @@
 """Build on push, by polling.
 
-Every WATCH_INTERVAL seconds, ask GitHub for the branch head of each project
-that has auto_build on, and start a build for a head not seen before. This is
+Every WATCH_INTERVAL seconds, ask the project's git provider (GitHub, or the
+Forgejo saved in Settings) for the branch head of each project that has
+auto_build on, and start a build for a head not seen before. This is
 what a push webhook would do, without one: nothing new listens on the
 network, there is no shared secret to verify, and the GitHub connection the
 console already holds is the only credential involved. The cost is up to one
@@ -17,7 +18,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import config, github
+from console import config, github, sources
 from console.db.models import Project
 from console.db.session import SessionLocal
 from console.deploy import builder
@@ -32,14 +33,26 @@ async def sweep(session: AsyncSession) -> None:
     )
     if not projects:
         return
-    try:
-        token = await github.resolve_token(session)
-    except github.GitHubNotConnected:
-        # Every project needs the same connection; one line, not one per project.
-        logger.warning("build on push is on but the console is not connected to GitHub")
-        return
-    client = github.GitHub(token)
+    # One client per provider. A provider without credentials skips only its
+    # own projects: a missing Forgejo token never stops a GitHub project.
+    clients: dict = {}
     for project in projects:
+        provider = project.git_provider
+        if provider not in clients:
+            try:
+                clients[provider] = await sources.client(session, provider)
+            except github.GitHubNotConnected:
+                # One line per provider, not one per project.
+                logger.warning(
+                    "build on push is on but the console is not connected to %s", provider
+                )
+                clients[provider] = None
+            except github.GitHubApiError as exc:
+                logger.warning("build on push cannot reach %s: %s", provider, exc)
+                clients[provider] = None
+        client = clients[provider]
+        if client is None:
+            continue
         try:
             await _check(session, project, client)
         except Exception:
@@ -47,7 +60,7 @@ async def sweep(session: AsyncSession) -> None:
     await session.commit()
 
 
-async def _check(session: AsyncSession, project: Project, client: github.GitHub) -> None:
+async def _check(session: AsyncSession, project: Project, client) -> None:
     sha, message = await client.resolve_commit(project.repo, project.branch)
     if project.watched_sha is None:
         # No baseline (a project enabled before the head could be read):

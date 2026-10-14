@@ -137,6 +137,43 @@ export default function Settings() {
         />
       </CollapsibleSection>
 
+      <CollapsibleSection id="forgejo" title="forgejo">
+        <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
+          Lets a project build from a repo on your own Forgejo instead of GitHub
+          (pick <UI>forgejo</UI> when registering it, or on its page). Images
+          still go to GitHub Packages under your account.
+        </p>
+
+        <Steps
+          items={[
+            <>
+              The URL is how this console reaches Forgejo. Where both run on the
+              same box, use the container&apos;s address on the apps&apos; network,
+              e.g. <Code>http://forgejo:3000</Code>, so no login in front of the
+              public hostname is in the way.
+            </>,
+            <>
+              In Forgejo, open <UI>Settings &rarr; Applications &rarr; Generate new
+              token</UI> and give it <UI>repository: read</UI>.
+            </>,
+            <>Paste both below and save.</>,
+          ]}
+        />
+        <SettingField
+          keyName="forgejo_url"
+          label="url"
+          placeholder="http://forgejo:3000"
+          isSet={isSet('forgejo_url')}
+          secret={false}
+        />
+        <SettingField
+          keyName="forgejo_token"
+          label="token"
+          placeholder="Forgejo access token (repository: read)"
+          isSet={isSet('forgejo_token')}
+        />
+      </CollapsibleSection>
+
       <CollapsibleSection id="cloudflare" title="cloudflare access">
         <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
           Lets a project&apos;s <UI>access</UI> toggle put the Cloudflare login

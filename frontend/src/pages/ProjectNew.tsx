@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import Combobox from '../components/Combobox'
 import { since } from '../lib/format'
+import type { GitProvider } from '../api/client'
 import {
   createProject,
   fetchDomains,
@@ -33,6 +34,7 @@ export default function ProjectNew() {
     subdomain: '',
     domain: '',
   })
+  const [provider, setProvider] = useState<GitProvider>('github')
   const [typingRepo, setTypingRepo] = useState(false)
   const [typingBranch, setTypingBranch] = useState(false)
 
@@ -48,7 +50,8 @@ export default function ProjectNew() {
     retry: false,
   })
   const repos = repoData?.repos ?? []
-  const picking = repos.length > 0 && !typingRepo
+  // The pickers list GitHub; a Forgejo repo is typed in.
+  const picking = provider === 'github' && repos.length > 0 && !typingRepo
 
   // Branches of whichever repo is chosen. Only asked for once there is a repo
   // to ask about, and a repo typed by hand is not one we can list.
@@ -69,7 +72,8 @@ export default function ProjectNew() {
     picking && form.repo !== '' && (branches.length > 0 || branchesLoading) && !typingBranch
 
   const create = useMutation({
-    mutationFn: () => createProject({ ...form, domain: domain || undefined }),
+    mutationFn: () =>
+      createProject({ ...form, domain: domain || undefined, git_provider: provider }),
     onSuccess: (project) => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       navigate(`/projects/${project.id}`)
@@ -111,6 +115,20 @@ export default function ProjectNew() {
           create.mutate()
         }}
       >
+        <label className="flex flex-col gap-1">
+          <span className="font-mono text-xs text-muted">source</span>
+          <select
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as GitProvider)}
+            className="select select-sm w-full border-base-300 bg-base-100 font-mono text-sm"
+          >
+            <option value="github">github</option>
+            <option value="forgejo">forgejo</option>
+          </select>
+          <span className="font-mono text-xs text-faint">
+            where the repo lives; the console builds it from there
+          </span>
+        </label>
         <Field
           label="name"
           hint="display name, usually the repo name"
@@ -149,7 +167,7 @@ export default function ProjectNew() {
         ) : (
           <Field
             label="repo"
-            hint="owner/repo on github"
+            hint={`owner/repo on ${provider}`}
             value={form.repo}
             onChange={set('repo')}
             placeholder="owner/repo"

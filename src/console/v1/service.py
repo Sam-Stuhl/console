@@ -21,6 +21,7 @@ from console import (
     credentials,
     domains,
     settings_store,
+    sources,
 )
 from console.api.projects import EMAIL_RE, REPO_RE  # the project field rules
 from console.backup import engine as backup_engine
@@ -92,8 +93,9 @@ def _project(
         deploy_status=deploy_status,
         is_live=is_live,
         auto_build=project.auto_build,
+        git_provider=project.git_provider,
         # GHCR paths are lowercase, which is what the build workflow pushes to.
-        image_hint=f"ghcr.io/{project.repo.lower()}:",
+        image_hint=sources.image_hint(project),
         created_at=project.created_at,
     )
 
@@ -127,9 +129,11 @@ async def create_project(
     subdomain: str,
     branch: str = "main",
     domain: str | None = None,
+    git_provider: str = sources.GITHUB,
 ) -> models.Project:
     try:
         validate_subdomain_format(subdomain)
+        sources.check_provider(git_provider)
     except ValueError as exc:
         raise Invalid(str(exc))
     if not REPO_RE.match(repo):
@@ -141,7 +145,12 @@ async def create_project(
             raise Conflict(f'a project with {field} "{value}" already exists')
 
     project = Project(
-        name=name, repo=repo, branch=branch, subdomain=subdomain, domain=domain
+        name=name,
+        repo=repo,
+        branch=branch,
+        subdomain=subdomain,
+        domain=domain,
+        git_provider=git_provider,
     )
     session.add(project)
     await session.commit()
@@ -397,6 +406,15 @@ async def deploy_image(
         session, project, image, git_ref, console_toml
     )
     return models.Accepted(id=deployment.id, status="queued")
+
+
+async def set_git_provider(
+    session: AsyncSession, ref: str, git_provider: str
+) -> models.Project:
+    """Build the project from GitHub or Forgejo from now on."""
+    project = await resolve_project(session, ref)
+    await builder.set_git_provider(session, project, git_provider)
+    return await get_project(session, project.id)
 
 
 async def build_project(

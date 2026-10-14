@@ -55,6 +55,11 @@ class Project(Base):
     # when auto_build is switched on so enabling never builds old pushes.
     auto_build: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     watched_sha: Mapped[str | None] = mapped_column(Text)
+    # Where the repo lives: "github" or "forgejo" (console.sources). The server
+    # default is what every project registered before Forgejo support reads as.
+    git_provider: Mapped[str] = mapped_column(
+        Text, default="github", server_default="github"
+    )
 
 
 class AccessPath(Base):

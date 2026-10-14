@@ -39,6 +39,12 @@ GITHUB_TOKEN = "github_token"
 # encrypted like everything else.
 GITHUB_CLIENT_ID = "github_client_id"
 GITHUB_CLIENT_SECRET = "github_client_secret"
+# A Forgejo instance to build projects from: its URL as the console reaches it
+# (normally the container's address on the console's own network, so no login
+# in front of the public hostname is in the way) and an access token that can
+# read the repos. Typed in by the operator, so they ride the settings API.
+FORGEJO_URL = "forgejo_url"
+FORGEJO_TOKEN = "forgejo_token"
 # Extra base domains apps can be hosted under, comma-separated, beyond the
 # primary CONSOLE_DOMAIN. Each is a one-time manual Cloudflare setup; the console
 # only records which exist so a project can pick one. Not in KNOWN: domains are
@@ -60,6 +66,8 @@ KNOWN = frozenset(
         NTFY_SERVER,
         GITHUB_CLIENT_ID,
         GITHUB_CLIENT_SECRET,
+        FORGEJO_URL,
+        FORGEJO_TOKEN,
     }
 )
 

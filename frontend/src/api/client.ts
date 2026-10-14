@@ -34,6 +34,8 @@ export interface Stats {
   mem_percent: number
 }
 
+export type GitProvider = 'github' | 'forgejo'
+
 export interface Project {
   id: string
   name: string
@@ -51,6 +53,7 @@ export interface Project {
   deploy_status: string | null // latest deployment status (queued/building/deploying/live/failed/…)
   is_live: boolean // a deployment is currently serving, independent of the monitor ping
   auto_build: boolean // a push to the tracked branch is built on the server and deployed
+  git_provider: GitProvider // where the repo lives and is built from
   image_hint: string // what CI tags this project's images as, minus the tag
 }
 
@@ -183,6 +186,7 @@ export const createProject = (body: {
   branch: string
   subdomain: string
   domain?: string
+  git_provider?: GitProvider
 }) => request<Project>('/api/projects', jsonInit('POST', body))
 
 export const fetchDomains = () =>
@@ -395,6 +399,11 @@ export const redeployDeployment = (projectId: string, deploymentId: string) =>
 // already seen, so only pushes from now on are built.
 export const updateAutoBuild = (id: string, enabled: boolean) =>
   request<Project>(`/api/projects/${id}/auto-build`, jsonInit('PUT', { enabled }))
+
+// Build from GitHub or from the Forgejo saved in Settings, from now on. With
+// build on push on, the new provider's branch head is taken as already seen.
+export const updateGitProvider = (id: string, git_provider: GitProvider) =>
+  request<Project>(`/api/projects/${id}/git-provider`, jsonInit('PUT', { git_provider }))
 
 // Build the repo at a ref on the server and deploy what comes out. The
 // console does this on its own for a push to the tracked branch; this is the

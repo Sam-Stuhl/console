@@ -105,6 +105,7 @@ subdomain, so `/v1/projects/blog` works as well as the UUID.
 | `POST /v1/projects/{project}/commands` | run a one-off command |
 | `POST /v1/projects`, `DELETE /v1/projects/{project}` | register and remove projects |
 | `PUT /v1/projects/{project}/domain`, `/access` | move domains, toggle the Access gate |
+| `PUT /v1/projects/{project}/git-provider` | build from `github` or `forgejo` from now on |
 | `POST`/`DELETE /v1/projects/{project}/access/paths[/{path}]` | open or close one path on an app, without the login |
 | `POST`/`DELETE /v1/access/paths[/{path}]` | the same on the console's own hostname |
 | `POST /v1/backups` | back up the console now |
