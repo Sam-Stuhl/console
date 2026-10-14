@@ -29,7 +29,7 @@ export default function GitProviderSelect({
   return (
     <div className="flex flex-wrap items-center gap-3 font-mono text-xs">
       <label className="flex items-center gap-2">
-        <span>builds from</span>
+        <span className="whitespace-nowrap">builds from</span>
         <select
           value={provider}
           disabled={save.isPending}
