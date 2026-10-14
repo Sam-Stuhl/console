@@ -18,7 +18,7 @@ from conftest import FakeResponse
 from console import config, forgejo, settings_store, sources
 from console.db.models import Deployment, Project
 from console.deploy import builder, watcher
-from console.errors import Invalid, Unavailable
+from console.errors import Conflict, Invalid, Unavailable
 
 from test_builder import FakeDocker, SHA, TOML
 
@@ -315,6 +315,24 @@ async def test_switching_to_an_unconfigured_provider_changes_nothing(db):
     assert (row.git_provider, row.watched_sha) == ("github", OLD)
 
 
+async def test_switching_onto_another_projects_image_path_is_refused(db, monkeypatch):
+    monkeypatch.setattr(config, "OIDC_OWNER", "Example-Owner")
+    async with db() as session:
+        session.add(Project(name="app", repo="example-owner/app", subdomain="app"))
+        await session.commit()
+    project, _ = await seed(db, name="other", provider="github")
+    async with db() as session:
+        row = await session.get(Project, project.id)
+        row.repo = "sam/app"
+        await session.commit()
+
+    async with db() as session:
+        row = await session.get(Project, project.id)
+        with pytest.raises(Conflict, match="already publishes to ghcr.io/example-owner/app:"):
+            await builder.set_git_provider(session, row, sources.FORGEJO)
+    assert (await reload(db, Project, project.id)).git_provider == "github"
+
+
 async def test_an_unknown_provider_is_refused(db):
     project, _ = await seed(db, provider="github")
     async with db() as session:
@@ -353,11 +371,21 @@ def test_migration_keeps_existing_projects_on_github_and_downgrades(tmp_path):
             ("github", 1)
         ]
 
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, repo, branch, subdomain, created_at,"
+            " protected, auto_build, git_provider) VALUES ('p2', 'Canary', 'sam/canary',"
+            " 'main', 'canary', '2026-01-01', 0, 1, 'forgejo')"
+        )
+
     # The rollback path: back to the revision an older console image knows.
     _alembic(db_path, "downgrade", "d0e1f2a3b4c5")
     with sqlite3.connect(db_path) as conn:
         columns = [r[1] for r in conn.execute("PRAGMA table_info(projects)")]
         assert "git_provider" not in columns
-        assert conn.execute("SELECT name, auto_build FROM projects").fetchall() == [
-            ("Cedar", 1)
+        # Cedar keeps building on push; the Forgejo project stops, since an
+        # older console would look for it on GitHub.
+        assert conn.execute("SELECT name, auto_build FROM projects ORDER BY id").fetchall() == [
+            ("Cedar", 1),
+            ("Canary", 0),
         ]

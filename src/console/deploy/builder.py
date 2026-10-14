@@ -163,6 +163,13 @@ async def set_git_provider(
         raise Invalid(str(exc))
     if provider == project.git_provider:
         return
+    candidate = Project(repo=project.repo, git_provider=provider)
+    candidate.id = project.id
+    other = await sources.image_conflict(session, candidate)
+    if other is not None:
+        raise Conflict(
+            f'project "{other.name}" already publishes to {sources.image_hint(candidate)}'
+        )
     if project.auto_build:
         try:
             source = await sources.client(session, provider)

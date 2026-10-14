@@ -47,8 +47,10 @@ async def sweep(session: AsyncSession) -> None:
                     "build on push is on but the console is not connected to %s", provider
                 )
                 clients[provider] = None
-            except github.GitHubApiError as exc:
-                logger.warning("build on push cannot reach %s: %s", provider, exc)
+            except Exception as exc:
+                # Anything else (a bad URL, an unreadable setting) still costs
+                # only this provider's projects, never the other's.
+                logger.warning("build on push cannot use %s: %s", provider, exc)
                 clients[provider] = None
         client = clients[provider]
         if client is None:

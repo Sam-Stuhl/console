@@ -6,6 +6,7 @@ project changes. "forgejo" reads the repo from the Forgejo instance saved in
 Settings. Either way the image goes to the same GHCR namespace, so pulling,
 the namespace check and rollback are the same for both."""
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from console import config, forgejo, github
@@ -42,6 +43,18 @@ def image_repo(project: Project) -> str:
         name = project.repo.split("/", 1)[-1]
         return f"{config.OIDC_OWNER.lower()}/{name.lower()}"
     return project.repo.lower()
+
+
+async def image_conflict(session: AsyncSession, project: Project) -> Project | None:
+    """Another project that would publish to the same GHCR path. A Forgejo
+    project's path drops its owner, so a Forgejo "x/app" and a GitHub
+    "<owner>/app" (or two Forgejo owners' "app") would overwrite each other's
+    images; the repo column's uniqueness does not catch that."""
+    target = image_repo(project)
+    for other in await session.scalars(select(Project)):
+        if other.id != project.id and other is not project and image_repo(other) == target:
+            return other
+    return None
 
 
 def image_for(project: Project, sha: str) -> str:

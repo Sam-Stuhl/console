@@ -175,6 +175,12 @@ async def create_project(
                 detail=f'a project with {field} "{value}" already exists',
             )
     project = Project(**body.model_dump())
+    other = await sources.image_conflict(session, project)
+    if other is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f'project "{other.name}" already publishes to {sources.image_hint(project)}',
+        )
     session.add(project)
     await session.commit()
     return _out(project)
@@ -265,6 +271,8 @@ async def set_git_provider(
         await builder.set_git_provider(session, project, body.git_provider)
     except Invalid as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Conflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except Unavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except Upstream as exc:

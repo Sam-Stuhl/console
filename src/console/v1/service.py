@@ -152,6 +152,11 @@ async def create_project(
         domain=domain,
         git_provider=git_provider,
     )
+    other = await sources.image_conflict(session, project)
+    if other is not None:
+        raise Conflict(
+            f'project "{other.name}" already publishes to {sources.image_hint(project)}'
+        )
     session.add(project)
     await session.commit()
     return _project(project)

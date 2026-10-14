@@ -420,6 +420,21 @@ async def test_create_a_forgejo_project(client, write_auth, monkeypatch):
     assert body["image_hint"] == "ghcr.io/example-owner/canary:"
 
 
+async def test_create_refuses_a_forgejo_repo_on_another_projects_image(
+    client, project, write_auth, monkeypatch
+):
+    # The project fixture is GitHub "owner/blog"; a Forgejo "sam/blog" would
+    # publish to ghcr.io/owner/blog as well and overwrite its images.
+    monkeypatch.setattr(config, "OIDC_OWNER", "owner")
+    res = await client.post(
+        "/v1/projects",
+        json={"name": "B2", "repo": "sam/blog", "subdomain": "b2", "git_provider": "forgejo"},
+        headers=write_auth,
+    )
+    assert res.status_code == 409
+    assert "ghcr.io/owner/blog:" in res.json()["detail"]
+
+
 async def test_create_rejects_an_unknown_git_provider(client, write_auth):
     res = await client.post(
         "/v1/projects",
