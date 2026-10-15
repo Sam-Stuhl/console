@@ -26,7 +26,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import alerts, appicon, config, domains, settings_store
+from console import alerts, appicon, config, domains, events, settings_store
 from console.db.models import Deployment, Project, Secret, utcnow
 from console.db.session import SessionLocal
 from console.deploy import plan
@@ -110,6 +110,13 @@ async def run_deploy(deployment_id: str) -> None:
             except Exception as exc:  # tasks must never die silently
                 await _fail(session, deployment, f"internal error: {exc!r}")
             else:
+                await events.post(
+                    session,
+                    "console.deploy.live",
+                    "a deploy passed its health check and took the traffic",
+                    _refs(project.name, deployment),
+                    at=deployment.finished_at,
+                )
                 await _refresh_icon(session, project)
                 await _prune_images(session, project, deployment)
 
@@ -561,6 +568,7 @@ async def _fail(
         await _restart(session, deployment, restart or [])
 
     # Best-effort deploy-failure alert; never let it break the fail path.
+    name = deployment.project_id
     try:
         project = await session.get(Project, deployment.project_id)
         name = project.name if project else deployment.project_id
@@ -573,6 +581,18 @@ async def _fail(
         )
     except Exception:
         logger.warning("deploy-failure alert failed", exc_info=True)
+    await events.post(
+        session,
+        "console.deploy.failed",
+        "a deploy failed, so the app stays on what was live before",
+        _refs(name, deployment, stage="deploy"),
+        at=deployment.finished_at,
+    )
+
+
+def _refs(project: str, deployment: Deployment, **extra) -> dict:
+    """What an event names: references a reader can follow back here."""
+    return {"project": project, "deployment": deployment.id, "sha": deployment.sha, **extra}
 
 
 async def _evidence(container) -> str:

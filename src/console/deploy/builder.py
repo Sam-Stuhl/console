@@ -28,7 +28,7 @@ import docker.errors
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import alerts, config, forgejo, github, settings_store, sources
+from console import alerts, config, events, forgejo, github, settings_store, sources
 from console.db.models import Deployment, Project, utcnow
 from console.db.session import SessionLocal
 from console.deploy import engine as deploy_engine, plan
@@ -475,3 +475,10 @@ async def _fail(
         )
     except Exception:
         logger.warning("build-failure alert failed", exc_info=True)
+    await events.post(
+        session,
+        "console.build.failed",
+        "a build failed, so nothing was deployed",
+        {"project": project.name, "deployment": deployment.id, "sha": deployment.sha},
+        at=deployment.finished_at,
+    )

@@ -22,7 +22,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import config, settings_store
+from console import config, events, settings_store
 from console.backup import crypto
 from console.backup.store import BackupStore, resolve_store
 from console.db.models import BackupRun, utcnow
@@ -97,6 +97,14 @@ async def run_backup(run_id: str) -> None:
         finally:
             backup.finished_at = utcnow()
             await session.commit()
+        ok = backup.status == "succeeded"
+        await events.post(
+            session,
+            "console.backup.ok" if ok else "console.backup.failed",
+            "the console backed up its state" if ok else "the console's backup failed",
+            {"backup": backup.id, "size_bytes": backup.size_bytes},
+            at=backup.finished_at,
+        )
 
 
 def _build_bundle(passphrase: bytes) -> bytes:

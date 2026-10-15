@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import config
-from console.db.models import Deployment, naive_utc
+from console import config, events
+from console.db.models import Deployment, Project, naive_utc
 from console.db.session import SessionLocal
 from console.schema.console_toml import ConsoleConfig
 
@@ -61,7 +61,7 @@ async def reap_once(session: AsyncSession, now: datetime) -> int:
             Deployment.status.in_(("building", "queued", "deploying"))
         )
     )
-    reaped = 0
+    reaped = []
     for deployment in rows:
         started, limit, reason = _age_limit(deployment)
         if started is None:
@@ -72,10 +72,24 @@ async def reap_once(session: AsyncSession, now: datetime) -> int:
             deployment.failure_reason = reason
             deployment.finished_at = now
             deployment.log = (deployment.log or "") + f"failed: {reason}\n"
-            reaped += 1
+            reaped.append(deployment)
     if reaped:
         await session.commit()
-    return reaped
+    for deployment in reaped:
+        project = await session.get(Project, deployment.project_id)
+        await events.post(
+            session,
+            "console.deploy.failed",
+            "a deployment was stuck past its time limit, so the reaper failed it",
+            {
+                "project": project.name if project else deployment.project_id,
+                "deployment": deployment.id,
+                "sha": deployment.sha,
+                "stage": "reaped",
+            },
+            at=deployment.finished_at,
+        )
+    return len(reaped)
 
 
 async def reaper_loop() -> None:

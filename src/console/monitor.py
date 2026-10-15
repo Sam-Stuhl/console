@@ -15,7 +15,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import alerts, config, credentials
+from console import alerts, config, credentials, events
 from console.db.models import Deployment, Project, ProjectHealth, utcnow
 from console.db.session import SessionLocal
 from console.deploy import plan
@@ -69,6 +69,12 @@ async def _record(session: AsyncSession, project: Project, check_up: bool) -> No
                 f"{project.name} is answering its health check again.",
                 tags=["white_check_mark"],
             )
+            await events.post(
+                session,
+                "console.app.recovered",
+                "an app that was down answers its health check again",
+                {"project": project.name},
+            )
         health.state = "up"
         health.fail_streak = 0
         health.alerted = False
@@ -83,6 +89,12 @@ async def _record(session: AsyncSession, project: Project, check_up: bool) -> No
                     f"{project.name} stopped answering its health check.",
                     tags=["rotating_light"],
                     priority="high",
+                )
+                await events.post(
+                    session,
+                    "console.app.down",
+                    "an app stopped answering its health check",
+                    {"project": project.name, "failed_checks": health.fail_streak},
                 )
                 health.alerted = True
 

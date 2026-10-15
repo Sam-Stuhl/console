@@ -13,7 +13,7 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from console import alerts, config, settings_store
+from console import alerts, config, events, settings_store
 
 # The tokens worth tracking: each can expire and break something quietly.
 TRACKED: list[tuple[str, str]] = [
@@ -107,5 +107,11 @@ async def check_expiries(session: AsyncSession, today: date | None = None) -> No
                 "high",
             )
         await alerts.send(session, title, message, tags=["key"], priority=priority)
+        await events.post(
+            session,
+            "console.credential.expired" if days_left < 0 else "console.credential.expiring",
+            "a credential the console uses needs renewing",
+            {"credential": key, "expires_at": expires_at, "days_left": days_left},
+        )
         await settings_store.set_value(session, _alerted_key(key), expires_at or "")
     await session.commit()
