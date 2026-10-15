@@ -331,6 +331,31 @@ export default function Settings() {
             <AlertTest disabled={!isSet('ntfy_topic')} />
           </CollapsibleSection>
 
+          <CollapsibleSection id="events" title="events">
+            <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
+              The console can also post what it does (a deploy went live or
+              failed, a build failed, an app went down or came back, a backup
+              ran, a credential needs renewing) as JSON to a URL you choose, for
+              a timeline or an automation to record. Each event is{' '}
+              <Code>{'{kind, because, refs, at}'}</Code>, with references only
+              (project, deployment id, sha), never logs. The token, if set, is
+              sent as <Code>Authorization: Bearer</Code>.
+            </p>
+            <SettingField
+              keyName="event_url"
+              label="url"
+              placeholder="https://example.com/events"
+              isSet={isSet('event_url')}
+              secret={false}
+            />
+            <SettingField
+              keyName="event_token"
+              label="token"
+              placeholder="bearer token (optional)"
+              isSet={isSet('event_token')}
+            />
+          </CollapsibleSection>
+
           <CollapsibleSection id="domains" title="domains">
             <p className="max-w-prose font-mono text-xs leading-relaxed text-faint">
               Apps serve at <Code>{'{subdomain}.{domain}'}</Code>. Every project

@@ -28,6 +28,10 @@ BACKUP_PASSPHRASE = "backup_passphrase"
 # public ntfy.sh anyone who knows it can read the notifications.
 NTFY_TOPIC = "ntfy_topic"
 NTFY_SERVER = "ntfy_server"
+# Outbound event hook (events.py): where the console posts what it did, as JSON,
+# and the bearer token it sends there. The URL is not secret; the token is.
+EVENT_URL = "event_url"
+EVENT_TOKEN = "event_token"
 # The OAuth token for outbound GitHub calls (repo list, reading console.toml),
 # obtained through the device flow. Not in KNOWN: it is written only by
 # /api/github/*, so connecting and disconnecting is the single write path and
@@ -64,6 +68,8 @@ KNOWN = frozenset(
         BACKUP_PASSPHRASE,
         NTFY_TOPIC,
         NTFY_SERVER,
+        EVENT_URL,
+        EVENT_TOKEN,
         GITHUB_CLIENT_ID,
         GITHUB_CLIENT_SECRET,
         FORGEJO_URL,

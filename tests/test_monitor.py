@@ -78,3 +78,24 @@ async def test_check_once_skips_undeployed(db, sent, monkeypatch):
         rows = list(await session.scalars(select(ProjectHealth)))
     assert rows == []
     assert sent == []
+
+
+async def test_down_and_recovered_are_posted_as_events(db, sent, monkeypatch):
+    monkeypatch.setattr(config, "MONITOR_FAIL_THRESHOLD", 1)
+    posted: list[tuple] = []
+
+    async def fake_post(session, kind, because, refs=None, at=None):
+        posted.append((kind, refs))
+        return True
+
+    monkeypatch.setattr(monitor.events, "post", fake_post)
+    project = await make_project(db)
+    async with db() as session:
+        project = await session.get(Project, project.id)
+        await monitor._record(session, project, False)
+        await monitor._record(session, project, False)  # still down: no second event
+        await monitor._record(session, project, True)
+    assert posted == [
+        ("console.app.down", {"project": "demo", "failed_checks": 1}),
+        ("console.app.recovered", {"project": "demo"}),
+    ]

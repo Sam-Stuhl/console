@@ -175,7 +175,7 @@ failure it has to guess at.
   UI, behind whatever gate fronts it, so one leaked token cannot renew itself
   into permanent access.
 - **Settings are not writable here.** The GHCR token, Cloudflare token, backup
-  passphrase, and ntfy topic are all credential material and stay in the UI.
+  passphrase, ntfy topic, and event token are all credential material and stay in the UI.
 - **There is no terminal over the API.** The interactive container shell is a
   websocket in the browser and stays there.
 - **`last_used_at` is approximate.** It is only rewritten once a minute, so a
