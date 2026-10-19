@@ -12,6 +12,7 @@ PRIORITY_START."""
 import hashlib
 import posixpath
 import re
+from collections.abc import Iterable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -171,23 +172,43 @@ def volume_path(root: str, app_name: str, volume: str) -> str:
     return posixpath.join(root, app_name, volume)
 
 
-def build_binds(cfg: ConsoleConfig, root: str) -> dict[str, dict[str, str]]:
+ROOT_SETTINGS = {"default": "CONSOLE_VOLUME_ROOT", "nas": "CONSOLE_NAS_ROOT"}
+
+
+def build_binds(
+    cfg: ConsoleConfig,
+    roots: dict[str, str],
+    others: Iterable[ConsoleConfig] = (),
+) -> dict[str, dict[str, str]]:
     """Docker SDK `volumes=` for this app: its own volumes read-write, other
-    apps' volumes read-only. Empty for a stateless app."""
+    apps' volumes read-only. Empty for a stateless app.
+
+    `roots` maps each storage name to its host root. A mount resolves under
+    the root its source volume declares, read from the live app that owns it."""
     if not (cfg.volumes or cfg.mounts):
         return {}
-    if not root:
-        raise ValueError(
-            "this app declares [[volumes]] or [[mounts]] but CONSOLE_VOLUME_ROOT "
-            "is not set, so there is nowhere to keep its data"
-        )
-    if not root.startswith("/"):
-        raise ValueError(f'CONSOLE_VOLUME_ROOT "{root}" must be an absolute path')
+
+    def root_for(storage: str) -> str:
+        root, setting = roots.get(storage, ""), ROOT_SETTINGS[storage]
+        if not root:
+            raise ValueError(
+                f"this app declares [[volumes]] or [[mounts]] but {setting} "
+                "is not set, so there is nowhere to keep its data"
+            )
+        if not root.startswith("/"):
+            raise ValueError(f'{setting} "{root}" must be an absolute path')
+        return root
+
+    storage_of = {(o.app.name, v.name): v.storage for o in others for v in o.volumes}
     binds = {
-        volume_path(root, cfg.app.name, v.name): {"bind": v.target, "mode": "rw"}
+        volume_path(root_for(v.storage), cfg.app.name, v.name): {
+            "bind": v.target,
+            "mode": "rw",
+        }
         for v in cfg.volumes
     }
     for m in cfg.mounts:
+        root = root_for(storage_of.get((m.app, m.volume), "default"))
         binds[volume_path(root, m.app, m.volume)] = {"bind": m.target, "mode": "ro"}
     return binds
 

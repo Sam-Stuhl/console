@@ -103,6 +103,10 @@ COMMAND_OUTPUT_MAX = 256 * 1024  # stored-output cap per run, bytes
 # creates a missing directory on first mount, and data outlives every deploy,
 # rollback and project delete.
 VOLUME_ROOT = os.environ.get("CONSOLE_VOLUME_ROOT", "").rstrip("/")
+# A second root, for volumes that declare storage = "nas": data that belongs on
+# the shared disk while everything else stays on the first one. Same layout and
+# the same never-delete rule. Unset refuses only the volumes that ask for it.
+NAS_ROOT = os.environ.get("CONSOLE_NAS_ROOT", "").rstrip("/")
 # A recreate stops a database or sync engine that must flush before it dies;
 # Docker's 10 s default ends in SIGKILL, the corruption recreate exists to avoid.
 RECREATE_STOP_TIMEOUT = 60  # seconds

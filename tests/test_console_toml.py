@@ -191,6 +191,20 @@ def test_stateful_config_parses_and_round_trips():
     assert again.mounts[0].volume == "export"
 
 
+def test_volume_storage_defaults_and_accepts_nas():
+    parsed, _ = parse_console_toml(STATEFUL)
+    assert parsed.volumes[0].storage == "default"
+    nas = STATEFUL.replace('name = "data"\n', 'name = "data"\nstorage = "nas"\n')
+    parsed, _ = parse_console_toml(nas)
+    assert parsed.volumes[0].storage == "nas"
+
+
+def test_unknown_volume_storage_rejected():
+    bad = STATEFUL.replace('name = "data"\n', 'name = "data"\nstorage = "usb"\n')
+    with pytest.raises(ConfigError, match="storage"):
+        parse_console_toml(bad)
+
+
 def test_default_strategy_is_swap():
     parsed, _ = parse_console_toml(VALID)
     assert parsed.deploy.strategy == "swap"
