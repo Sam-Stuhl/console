@@ -127,6 +127,10 @@ class VolumeEntry(BaseModel):
 
     name: str
     target: str
+    # Which of the install's roots holds it: "nas" is CONSOLE_NAS_ROOT. Changing
+    # it on a live app does not move the data; the next deploy mounts an empty
+    # directory at the new root, so copy the data across first.
+    storage: Literal["default", "nas"] = "default"
 
     @field_validator("name")
     @classmethod

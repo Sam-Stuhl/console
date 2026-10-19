@@ -893,6 +893,59 @@ async def test_two_projects_cannot_share_a_volume_directory(
     assert "must be unique" in row.failure_reason
 
 
+NAS_STATEFUL = STATEFUL.replace('name = "data"\n', 'name = "data"\nstorage = "nas"\n')
+
+
+async def test_nas_volume_lives_under_the_nas_root(
+    sessions, fake_docker, healthy, volume_root, monkeypatch
+):
+    monkeypatch.setattr(config, "NAS_ROOT", "/Volumes/tank/console-volumes")
+    _, deployment, _ = await seed(sessions, toml=NAS_STATEFUL)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "live", row.failure_reason
+    (call,) = fake_docker.run_calls
+    assert call["volumes"] == {
+        "/Volumes/tank/console-volumes/demo/data": {"bind": "/data", "mode": "rw"}
+    }
+
+
+async def test_nas_volume_without_a_nas_root_fails(
+    sessions, fake_docker, healthy, volume_root, monkeypatch
+):
+    monkeypatch.setattr(config, "NAS_ROOT", "")
+    _, deployment, _ = await seed(sessions, toml=NAS_STATEFUL)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "CONSOLE_NAS_ROOT" in row.failure_reason
+    assert fake_docker.run_calls == []
+
+
+async def test_mount_of_a_nas_volume_follows_it(
+    sessions, fake_docker, healthy, volume_root, monkeypatch
+):
+    monkeypatch.setattr(config, "NAS_ROOT", "/Volumes/tank/console-volumes")
+    source = other_app("vault-db").replace(
+        'name = "data"\n', 'name = "data"\nstorage = "nas"\n'
+    )
+    await add_live_project(sessions, "vault-db", source)
+    _, deployment, _ = await seed(sessions, toml=READER)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "live", row.failure_reason
+    (call,) = fake_docker.run_calls
+    assert call["volumes"] == {
+        "/Volumes/tank/console-volumes/vault-db/data": {"bind": "/source", "mode": "ro"}
+    }
+
+
 async def test_stateless_app_gets_no_volumes(sessions, fake_docker, healthy):
     _, deployment, _ = await seed(sessions)
     await engine.run_deploy(deployment.id)

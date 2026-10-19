@@ -85,6 +85,9 @@ services:
       # inside a Colima mount). Blank refuses apps that declare volumes.
       # Moving storage: stop those apps, copy the tree, change this, redeploy.
       CONSOLE_VOLUME_ROOT: ${CONSOLE_VOLUME_ROOT:-}
+      # The second root, for volumes that declare storage = "nas" (the shared
+      # disk). Blank refuses only those volumes.
+      CONSOLE_NAS_ROOT: ${CONSOLE_NAS_ROOT:-}
     labels:
       - traefik.enable=true
       - traefik.http.routers.console.rule=Host(`console.${CONSOLE_DOMAIN}`)

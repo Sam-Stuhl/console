@@ -61,6 +61,10 @@ volume and a mount point; it never names a host path, so moving storage is a
 copy plus that one setting. The console never deletes anything under the root:
 data outlives deploys, rollbacks and project deletes.
 
+A volume with `storage = "nas"` resolves under `CONSOLE_NAS_ROOT` instead, with
+the same layout, and a mount of it follows it there. Changing a live volume's
+`storage` moves nothing: copy the directory to the other root first.
+
 ### Stateful apps: `[deploy] strategy = "recreate"`
 
 An app with `[[volumes]]` must use it, and the parser refuses one that does

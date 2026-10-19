@@ -426,7 +426,8 @@ async def _assemble_binds(
             continue  # an old snapshot this schema cannot read declares nothing
     try:
         plan.check_storage(cfg, others)
-        return plan.build_binds(cfg, config.VOLUME_ROOT)
+        roots = {"default": config.VOLUME_ROOT, "nas": config.NAS_ROOT}
+        return plan.build_binds(cfg, roots, others)
     except ValueError as exc:
         raise DeployFailed(str(exc))
 
