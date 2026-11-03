@@ -203,6 +203,15 @@ async def build_project(project: str, ref: str | None = None) -> dict:
 
 
 @server.tool()
+async def set_auto_build(project: str, enabled: bool) -> dict:
+    """Build on push, on or off. Requires a write token. Enabling takes the
+    branch head as already seen, so nothing is built until the next push;
+    build_project builds the head that is there now."""
+    _require_write()
+    return await _call(service.set_auto_build, project, enabled)
+
+
+@server.tool()
 async def rollback_deployment(project: str, deployment_id: str) -> dict:
     """Roll back to an earlier build that served traffic. Requires a write
     token. Creates a fresh deployment; the live app is not touched until the

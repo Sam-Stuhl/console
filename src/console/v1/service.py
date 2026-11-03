@@ -210,6 +210,16 @@ async def set_access(
     return _project(project)
 
 
+async def set_auto_build(
+    session: AsyncSession, ref: str, enabled: bool
+) -> models.Project:
+    """Build on push, on or off, the same switch as the project page. Enabling
+    takes the branch head as already seen, so only later pushes are built."""
+    project = await resolve_project(session, ref)
+    await builder.set_auto_build(session, project, enabled)
+    return _project(project)
+
+
 async def set_domain(
     session: AsyncSession, ref: str, domain: str | None, repoint: str = "manual"
 ) -> models.DomainChange:

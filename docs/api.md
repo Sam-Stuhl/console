@@ -157,10 +157,10 @@ with your console's real URL.
 The server ships instructions telling an agent how to work the console: start
 at `get_system`, then `list_projects`, and the usual path for diagnosing a sick
 app (`get_project` -> `get_container` -> `get_app_logs` -> `list_deployments`).
-Twenty-five tools, named for what they do: `get_system`, `list_projects`,
+Twenty-six tools, named for what they do: `get_system`, `list_projects`,
 `get_project`, `list_deployments`, `get_deployment`, `get_container`,
 `get_app_logs`, `list_secret_keys`, `list_commands`, `get_command`,
-`get_backups`, `list_access_paths`, and the write tools `build_project`,
+`get_backups`, `list_access_paths`, and the write tools `build_project`, `set_auto_build`,
 `deploy_image`,
 `rollback_deployment`, `redeploy`, `control_app`, `run_command`,
 `create_project`, `delete_project`, `set_project_domain`, `set_project_access`,
