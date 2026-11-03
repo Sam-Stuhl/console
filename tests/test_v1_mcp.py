@@ -277,6 +277,25 @@ async def test_a_write_token_reaches_the_write_tool(mcp, auth):
     assert "docs" in json.dumps(result)
 
 
+async def test_build_on_push_is_switched_through_the_mcp(mcp, auth, project):
+    client = McpClient(mcp, await auth(tokens.WRITE))
+    await client.initialize()
+    off = await client.call("set_auto_build", {"project": "Blog", "enabled": False})
+    assert off["result"]["isError"] is not True
+    assert "\"auto_build\": false" in off["result"]["content"][0]["text"]
+
+    # Enabling reads the branch head first; with no GitHub connection that
+    # refusal reaches the agent in words, and nothing is switched on.
+    on = await client.call("set_auto_build", {"project": "Blog", "enabled": True})
+    assert on["result"]["isError"] is True
+    assert on["result"]["content"][0]["text"] != "Error executing tool set_auto_build"
+
+    read = McpClient(mcp, await auth(tokens.READ))
+    await read.initialize()
+    refused = await read.call("set_auto_build", {"project": "Blog", "enabled": False})
+    assert "read-only" in json.dumps(refused)
+
+
 async def test_secret_values_never_reach_a_tool_result(mcp, auth, db, project):
     async with db() as session:
         session.add(
