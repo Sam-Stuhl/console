@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { Link, NavLink, Route, Routes } from 'react-router-dom'
 import { ConsoleMark } from './components/Logo'
 import ContainerList from './pages/ContainerList'
 import ContainerDetail from './pages/ContainerDetail'
@@ -12,6 +12,17 @@ import Settings from './pages/Settings'
 
 // xterm is heavy and only this route needs it; keep it out of the main bundle.
 const ProjectTerminal = lazy(() => import('./pages/ProjectTerminal'))
+
+function NotFound() {
+  return (
+    <div className="rounded-box border border-error/40 px-4 py-3 font-mono text-sm">
+      <span className="text-error">page not found </span>
+      <Link to="/" className="text-accent hover:underline">
+        back to projects
+      </Link>
+    </div>
+  )
+}
 
 function navClass({ isActive }: { isActive: boolean }) {
   return `font-mono text-sm transition-colors duration-150 ${
@@ -67,6 +78,7 @@ function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/containers" element={<ContainerList />} />
           <Route path="/containers/:id" element={<ContainerDetail />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
     </div>
