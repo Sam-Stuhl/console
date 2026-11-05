@@ -7,17 +7,19 @@ import StatsCells from '../components/StatsCells'
 
 export default function ContainerList() {
   const navigate = useNavigate()
-  const { data: containers, isError } = useQuery({
+  const { data: containers, isError, error } = useQuery({
     queryKey: ['containers'],
     queryFn: fetchContainers,
     refetchInterval: 5000,
   })
 
-  if (isError) {
+  // A failed background poll keeps the last good list on screen; the error
+  // only replaces the page when there is nothing loaded to show.
+  if (isError && !containers) {
     return (
       <div className="rounded-box border border-error/40 px-4 py-3 font-mono text-sm">
-        <span className="text-error">api unreachable</span>
-        <span className="text-muted"> is uvicorn running on :8000?</span>
+        <span className="text-error">could not load containers</span>
+        <span className="text-muted"> {(error as Error).message}</span>
       </div>
     )
   }
