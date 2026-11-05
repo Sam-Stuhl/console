@@ -23,3 +23,25 @@ async def test_unknown_api_path_is_a_json_404_not_the_spa(client, dist, path):
     response = await client.get(path)
     assert response.status_code == 404
     assert response.json() == {"detail": "Not Found"}
+
+
+async def test_fallback_never_serves_a_file_outside_the_build(
+    client, dist, tmp_path_factory
+):
+    # "/%2F<abs path>" reaches the route as an absolute path (as "//<abs path>"
+    # does over the wire; httpx would read that as a host instead).
+    secret = tmp_path_factory.mktemp("outside") / "key"
+    secret.write_text("not for the browser")
+    response = await client.get("/%2F" + str(secret).lstrip("/"))
+    assert "not for the browser" not in response.text
+
+
+async def test_a_double_slash_api_path_is_still_a_404(client, dist):
+    assert (await client.get("/%2Fapi/nothing")).status_code == 404
+
+
+async def test_files_inside_the_build_are_still_served(client, dist):
+    (dist / "console.svg").write_text("<svg/>")
+    response = await client.get("/console.svg")
+    assert response.status_code == 200
+    assert response.text == "<svg/>"

@@ -162,10 +162,12 @@ _API_PREFIXES = ("api", "v1")
 
 @app.get("/{path:path}", include_in_schema=False)
 async def spa(path: str) -> FileResponse:
+    # A leading slash (from "//x" or "/%2Fx") would make DIST / path absolute.
+    path = path.lstrip("/")
     if path.split("/", 1)[0] in _API_PREFIXES:
         raise HTTPException(status_code=404)
-    candidate = DIST / path
-    if path and ".." not in path and candidate.is_file():
+    candidate = (DIST / path).resolve()
+    if path and candidate.is_relative_to(DIST.resolve()) and candidate.is_file():
         return FileResponse(candidate)
     index = DIST / "index.html"
     if not index.is_file():
