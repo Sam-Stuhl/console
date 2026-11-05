@@ -23,7 +23,7 @@ from console import (
     settings_store,
     sources,
 )
-from console.api.projects import EMAIL_RE, REPO_RE  # the project field rules
+from console.api.projects import EMAIL_RE, project_field_error  # the project field rules
 from console.backup import engine as backup_engine
 from console.commands import runner
 from console.db.models import (
@@ -136,8 +136,9 @@ async def create_project(
         sources.check_provider(git_provider)
     except ValueError as exc:
         raise Invalid(str(exc))
-    if not REPO_RE.match(repo):
-        raise Invalid(f'repo "{repo}" must look like "owner/name"')
+    error = project_field_error(name, repo, branch)
+    if error:
+        raise Invalid(error)
     if domain is not None and domain not in await domains.available(session):
         raise Invalid(f'domain "{domain}" is not configured; add it in Settings first')
     for field, value in (("name", name), ("repo", repo), ("subdomain", subdomain)):

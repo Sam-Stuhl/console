@@ -816,3 +816,14 @@ async def test_deleting_a_project_over_v1_closes_its_bypasses(
         await client.delete("/v1/projects/blog", headers=write_auth)
     ).status_code == 204
     assert ("delete", "cf-1") in fake_cf.calls
+
+
+@pytest.mark.parametrize(
+    "overrides", [{"name": "  "}, {"repo": "../.."}, {"branch": "a..b"}]
+)
+async def test_v1_create_rejects_unusable_name_repo_or_branch(
+    client, write_auth, overrides
+):
+    body = {"name": "site", "repo": "owner/site", "subdomain": "site", **overrides}
+    res = await client.post("/v1/projects", json=body, headers=write_auth)
+    assert res.status_code == 400

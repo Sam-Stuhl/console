@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+import pytest
+
 from console import config
 from console.db.models import Deployment
 
@@ -204,3 +206,39 @@ async def test_rename_trims_and_rejects_blank_or_taken(client):
 
 async def test_rename_unknown_project_404s(client):
     assert (await client.put("/api/projects/nope/name", json={"name": "x"})).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"name": "   "},
+        {"repo": "../.."},
+        {"repo": "owner/.."},
+        {"repo": "./name"},
+        {"branch": "../../x y"},
+        {"branch": "feature x"},
+        {"branch": "-rf"},
+        {"branch": "topic/"},
+    ],
+)
+async def test_create_rejects_unusable_name_repo_or_branch(client, overrides):
+    response = await create(client, **overrides)
+    assert response.status_code == 400
+    assert isinstance(response.json()["detail"], str)
+    assert (await client.get("/api/projects")).json() == []
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"repo": "owner/.github"}, {"repo": "my.org/site.io"}, {"branch": "release/1.2"}],
+)
+async def test_create_accepts_dots_inside_repo_and_branch(client, overrides):
+    assert (await create(client, **overrides)).status_code == 201
+
+
+async def test_create_trims_the_name_before_the_duplicate_check(client):
+    assert (await create(client)).status_code == 201
+    response = await create(
+        client, name=f" {PROJECT['name']} ", repo="o/other", subdomain="other"
+    )
+    assert response.status_code == 409
