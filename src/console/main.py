@@ -4,7 +4,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -151,13 +151,26 @@ async def _access_not_configured(_request, exc: AccessNotConfigured):
 
 # In production the built SPA is served straight from FastAPI: one process,
 # one container. In dev the Vite server serves the frontend and proxies /api
-# here, so this block is simply inactive until `npm run build` has run.
+# here, so this is a 404 until `npm run build` has run.
 if DIST.is_dir():
     app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
 
-    @app.get("/{path:path}", include_in_schema=False)
-    async def spa(path: str) -> FileResponse:
-        candidate = DIST / path
-        if path and ".." not in path and candidate.is_file():
+# Paths the SPA never owns: an unknown API path is a 404 a script can act on,
+# not a 200 with index.html it then fails to parse.
+_API_PREFIXES = ("api", "v1")
+
+
+@app.get("/{path:path}", include_in_schema=False)
+async def spa(path: str) -> FileResponse:
+    # A leading slash (from "//x" or "/%2Fx") would make DIST / path absolute.
+    path = path.lstrip("/")
+    if path.split("/", 1)[0] in _API_PREFIXES:
+        raise HTTPException(status_code=404)
+    if path and "\x00" not in path:  # resolve() raises on a null byte
+        candidate = (DIST / path).resolve()
+        if candidate.is_relative_to(DIST.resolve()) and candidate.is_file():
             return FileResponse(candidate)
-        return FileResponse(DIST / "index.html")
+    index = DIST / "index.html"
+    if not index.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(index)
