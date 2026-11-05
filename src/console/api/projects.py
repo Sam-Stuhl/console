@@ -16,8 +16,29 @@ from console.errors import Conflict, Invalid, Unavailable, Upstream
 from console.schema.console_toml import validate_subdomain_format
 from console.starters import starter_files
 
-REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
+# Owner and name are each word characters, dots and hyphens, but never a bare
+# "." or "..": the repo is put into GitHub and Forgejo API paths.
+REPO_RE = re.compile(r"^(?!\.\.?/)[\w.-]+/(?!\.\.?$)[\w.-]+$")
+# What git refuses in a branch name (git check-ref-format), the parts a typo
+# can produce: whitespace, "..", its special characters, a leading "-" or "/",
+# a trailing "/", "@{". Such a branch could never be resolved to build.
+BRANCH_BAD_RE = re.compile(r"\s|\.\.|[~^:?*\[\\]|^[-/]|/$|@\{")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def project_field_error(name: str, repo: str, branch: str) -> str | None:
+    """The one readable reason a new project's name, repo or branch is
+    unusable, or None. Shared by the UI's create and the v1 API's."""
+    if not name:
+        return "a project needs a name"
+    if not REPO_RE.match(repo):
+        return f'repo "{repo}" must look like "owner/name"'
+    if not branch:
+        return "a project needs a branch"
+    if BRANCH_BAD_RE.search(branch):
+        return f'branch "{branch}" is not a valid git branch name'
+    return None
+
 
 router = APIRouter(prefix="/api/projects")
 
@@ -150,15 +171,20 @@ async def create_project(
     body: ProjectCreate, session: AsyncSession = Depends(get_session)
 ) -> ProjectOut:
     # Validated here rather than in the pydantic model so failures are 400s
-    # with one flat, readable message the UI can show inline.
+    # with one flat, readable message the UI can show inline. Trimmed first, as
+    # rename and the v1 API do, so "app " cannot sit beside "app".
+    body = body.model_copy(
+        update={
+            f: getattr(body, f).strip() for f in ("name", "repo", "branch", "subdomain")
+        }
+    )
     try:
         validate_subdomain_format(body.subdomain)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    if not REPO_RE.match(body.repo):
-        raise HTTPException(
-            status_code=400, detail=f'repo "{body.repo}" must look like "owner/name"'
-        )
+    error = project_field_error(body.name, body.repo, body.branch)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
     if body.domain is not None and body.domain not in await domains.available(session):
         raise HTTPException(
             status_code=400,

@@ -23,7 +23,8 @@ from console import (
     settings_store,
     sources,
 )
-from console.api.projects import EMAIL_RE, REPO_RE  # the project field rules
+# the project field rules
+from console.api.projects import EMAIL_RE, project_field_error
 from console.backup import engine as backup_engine
 from console.commands import runner
 from console.db.models import (
@@ -131,13 +132,17 @@ async def create_project(
     domain: str | None = None,
     git_provider: str = sources.GITHUB,
 ) -> models.Project:
+    # Trimmed here, not only in the REST route: the MCP tool passes its
+    # arguments straight through.
+    name, repo, subdomain, branch = (v.strip() for v in (name, repo, subdomain, branch))
     try:
         validate_subdomain_format(subdomain)
         sources.check_provider(git_provider)
     except ValueError as exc:
         raise Invalid(str(exc))
-    if not REPO_RE.match(repo):
-        raise Invalid(f'repo "{repo}" must look like "owner/name"')
+    error = project_field_error(name, repo, branch)
+    if error:
+        raise Invalid(error)
     if domain is not None and domain not in await domains.available(session):
         raise Invalid(f'domain "{domain}" is not configured; add it in Settings first')
     for field, value in (("name", name), ("repo", repo), ("subdomain", subdomain)):
