@@ -277,6 +277,24 @@ async def test_a_write_token_reaches_the_write_tool(mcp, auth):
     assert "docs" in json.dumps(result)
 
 
+async def test_mcp_create_rejects_a_blank_name_and_trims_the_rest(mcp, auth):
+    # The MCP tool passes its arguments through untrimmed, unlike the REST route.
+    client = McpClient(mcp, await auth(tokens.WRITE))
+    await client.initialize()
+    blank = await client.call(
+        "create_project", {"name": "  ", "repo": "owner/docs", "subdomain": "docs"}
+    )
+    assert blank["result"]["isError"] is True
+    assert "needs a name" in json.dumps(blank)
+
+    padded = await client.call(
+        "create_project",
+        {"name": " Docs ", "repo": " owner/docs ", "subdomain": "docs", "branch": "main "},
+    )
+    assert padded["result"]["isError"] is not True
+    assert '"name": "Docs"' in padded["result"]["content"][0]["text"]
+
+
 async def test_build_on_push_is_switched_through_the_mcp(mcp, auth, project):
     client = McpClient(mcp, await auth(tokens.WRITE))
     await client.initialize()

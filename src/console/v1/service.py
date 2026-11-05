@@ -131,6 +131,9 @@ async def create_project(
     domain: str | None = None,
     git_provider: str = sources.GITHUB,
 ) -> models.Project:
+    # Trimmed here, not only in the REST route: the MCP tool passes its
+    # arguments straight through.
+    name, repo, subdomain, branch = (v.strip() for v in (name, repo, subdomain, branch))
     try:
         validate_subdomain_format(subdomain)
         sources.check_provider(git_provider)
