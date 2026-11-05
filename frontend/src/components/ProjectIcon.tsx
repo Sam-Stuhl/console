@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { projectIconUrl, type Project } from '../api/client'
 
+// By code point, not UTF-16 unit, so an emoji is never cut in half.
 function initials(name: string): string {
   const joined = name
     .split(/[-_ ]/)
-    .map((word) => word[0])
+    .map((word) => Array.from(word)[0] ?? '')
     .join('')
-  return (joined.slice(0, 2) || name.slice(0, 2)).toUpperCase()
+  return (Array.from(joined).slice(0, 2).join('') || Array.from(name).slice(0, 2).join('')).toUpperCase()
 }
 
 /**
