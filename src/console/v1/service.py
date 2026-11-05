@@ -23,7 +23,8 @@ from console import (
     settings_store,
     sources,
 )
-from console.api.projects import EMAIL_RE, project_field_error  # the project field rules
+# the project field rules
+from console.api.projects import EMAIL_RE, project_field_error
 from console.backup import engine as backup_engine
 from console.commands import runner
 from console.db.models import (

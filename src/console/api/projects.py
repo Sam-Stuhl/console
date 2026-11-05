@@ -33,6 +33,8 @@ def project_field_error(name: str, repo: str, branch: str) -> str | None:
         return "a project needs a name"
     if not REPO_RE.match(repo):
         return f'repo "{repo}" must look like "owner/name"'
+    if not branch:
+        return "a project needs a branch"
     if BRANCH_BAD_RE.search(branch):
         return f'branch "{branch}" is not a valid git branch name'
     return None

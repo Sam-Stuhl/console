@@ -219,6 +219,7 @@ async def test_rename_unknown_project_404s(client):
         {"branch": "feature x"},
         {"branch": "-rf"},
         {"branch": "topic/"},
+        {"branch": "   "},
     ],
 )
 async def test_create_rejects_unusable_name_repo_or_branch(client, overrides):
