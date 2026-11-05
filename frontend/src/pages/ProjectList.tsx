@@ -7,18 +7,20 @@ import ProjectStatusBadge from '../components/ProjectStatusBadge'
 
 export default function ProjectList() {
   const navigate = useNavigate()
-  const { data: projects, isError } = useQuery({
+  const { data: projects, isError, error } = useQuery({
     queryKey: ['projects'],
     queryFn: fetchProjects,
     // Poll so an in-flight deploy's status animates and settles without a reload.
     refetchInterval: 5000,
   })
 
-  if (isError) {
+  // A failed background poll keeps the last good list on screen; the error
+  // only replaces the page when there is nothing loaded to show.
+  if (isError && !projects) {
     return (
       <div className="rounded-box border border-error/40 px-4 py-3 font-mono text-sm">
-        <span className="text-error">api unreachable</span>
-        <span className="text-muted"> is uvicorn running on :8000?</span>
+        <span className="text-error">could not load projects</span>
+        <span className="text-muted"> {(error as Error).message}</span>
       </div>
     )
   }
