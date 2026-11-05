@@ -166,9 +166,10 @@ async def spa(path: str) -> FileResponse:
     path = path.lstrip("/")
     if path.split("/", 1)[0] in _API_PREFIXES:
         raise HTTPException(status_code=404)
-    candidate = (DIST / path).resolve()
-    if path and candidate.is_relative_to(DIST.resolve()) and candidate.is_file():
-        return FileResponse(candidate)
+    if path and "\x00" not in path:  # resolve() raises on a null byte
+        candidate = (DIST / path).resolve()
+        if candidate.is_relative_to(DIST.resolve()) and candidate.is_file():
+            return FileResponse(candidate)
     index = DIST / "index.html"
     if not index.is_file():
         raise HTTPException(status_code=404)

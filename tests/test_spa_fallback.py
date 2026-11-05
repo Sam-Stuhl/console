@@ -33,7 +33,8 @@ async def test_fallback_never_serves_a_file_outside_the_build(
     secret = tmp_path_factory.mktemp("outside") / "key"
     secret.write_text("not for the browser")
     response = await client.get("/%2F" + str(secret).lstrip("/"))
-    assert "not for the browser" not in response.text
+    assert response.status_code == 200
+    assert "id=root" in response.text
 
 
 async def test_a_double_slash_api_path_is_still_a_404(client, dist):
@@ -45,3 +46,9 @@ async def test_files_inside_the_build_are_still_served(client, dist):
     response = await client.get("/console.svg")
     assert response.status_code == 200
     assert response.text == "<svg/>"
+
+
+async def test_a_null_byte_in_the_path_gets_the_spa_not_a_500(client, dist):
+    response = await client.get("/a%00b")
+    assert response.status_code == 200
+    assert "id=root" in response.text
