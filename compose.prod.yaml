@@ -88,6 +88,11 @@ services:
       # The second root, for volumes that declare storage = "nas" (the shared
       # disk). Blank refuses only those volumes.
       CONSOLE_NAS_ROOT: ${CONSOLE_NAS_ROOT:-}
+      # Existing NAS folders an app may mount with [[shares]]: the root on the
+      # Docker host and an allowlist of name:mode ("drop:rw,atlas:ro"), the
+      # most any app may do to each. Blank refuses every [[shares]] entry.
+      CONSOLE_SHARES_ROOT: ${CONSOLE_SHARES_ROOT:-}
+      CONSOLE_SHARES_ALLOW: ${CONSOLE_SHARES_ALLOW:-}
     labels:
       - traefik.enable=true
       - traefik.http.routers.console.rule=Host(`console.${CONSOLE_DOMAIN}`)

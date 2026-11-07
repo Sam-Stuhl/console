@@ -256,3 +256,9 @@ def test_the_same_volume_cannot_be_mounted_twice():
     text = STATEFUL + '\n[[mounts]]\nfrom = "vault-bridge/export"\ntarget = "/elsewhere"\n'
     with pytest.raises(ConfigError, match="same volume twice"):
         parse_console_toml(text)
+
+
+def test_share_name_cannot_escape_the_root():
+    text = STATEFUL + '\n[[shares]]\nname = "../etc"\ntarget = "/x"\n'
+    with pytest.raises(ConfigError):
+        parse_console_toml(text)
