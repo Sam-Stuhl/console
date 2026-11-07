@@ -23,6 +23,7 @@ SECRET_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 MEMORY_RE = re.compile(r"^(\d+)([kmg])$")
 KNOWN_TOP_LEVEL_KEYS = {
     "app", "health", "resources", "env", "secrets", "deploy", "volumes", "mounts",
+    "shares",
 }
 # Volume names and the app names that prefix them become host path segments,
 # so they are held to a shape that cannot escape the volume root.
@@ -181,6 +182,31 @@ class MountEntry(BaseModel):
         return self.source.partition("/")[2]
 
 
+class ShareEntry(BaseModel):
+    """An existing folder on the install's shares root (CONSOLE_SHARES_ROOT).
+    Read-only unless the app asks for "rw"; the install's allowlist has the
+    final say on both the name and the mode."""
+
+    name: str
+    target: str
+    mode: Literal["ro", "rw"] = "ro"
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str) -> str:
+        if not VOLUME_NAME_RE.match(value):
+            raise ValueError(
+                f'share name "{value}" must be 1-32 chars of lowercase letters, '
+                "digits, and inner hyphens"
+            )
+        return value
+
+    @field_validator("target")
+    @classmethod
+    def _target(cls, value: str) -> str:
+        return validate_target(value)
+
+
 class ConsoleConfig(BaseModel):
     app: AppSection
     health: HealthSection = HealthSection()
@@ -190,6 +216,7 @@ class ConsoleConfig(BaseModel):
     secrets: list[str] = []
     volumes: list[VolumeEntry] = []
     mounts: list[MountEntry] = []
+    shares: list[ShareEntry] = []
 
     @model_validator(mode="after")
     def _storage(self) -> "ConsoleConfig":
@@ -201,9 +228,16 @@ class ConsoleConfig(BaseModel):
         names = [v.name for v in self.volumes]
         if len(set(names)) != len(names):
             raise ValueError("volumes contains a duplicate name")
-        targets = [v.target for v in self.volumes] + [m.target for m in self.mounts]
+        targets = (
+            [v.target for v in self.volumes]
+            + [m.target for m in self.mounts]
+            + [s.target for s in self.shares]
+        )
         if len(set(targets)) != len(targets):
-            raise ValueError("two volumes or mounts share a target path")
+            raise ValueError("two volumes, mounts or shares share a target path")
+        share_names = [s.name for s in self.shares]
+        if len(set(share_names)) != len(share_names):
+            raise ValueError("shares names the same folder twice")
         sources = [m.source for m in self.mounts]
         if len(set(sources)) != len(sources):
             raise ValueError("mounts names the same volume twice")

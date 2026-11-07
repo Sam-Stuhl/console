@@ -407,7 +407,7 @@ class _Reaped(DeployFailed):
 async def _assemble_binds(
     session: AsyncSession, cfg: ConsoleConfig, project_id: str
 ) -> dict[str, dict[str, str]]:
-    if not (cfg.volumes or cfg.mounts or cfg.deploy.strategy == "recreate"):
+    if not (cfg.volumes or cfg.mounts or cfg.shares or cfg.deploy.strategy == "recreate"):
         return {}
     others = []
     # Live and mid-deploy rows both claim their app's directory, so two
@@ -427,7 +427,9 @@ async def _assemble_binds(
     try:
         plan.check_storage(cfg, others)
         roots = {"default": config.VOLUME_ROOT, "nas": config.NAS_ROOT}
-        return plan.build_binds(cfg, roots, others)
+        binds = plan.build_binds(cfg, roots, others)
+        binds.update(plan.share_binds(cfg, config.SHARES_ROOT, config.SHARES_ALLOW))
+        return binds
     except ValueError as exc:
         raise DeployFailed(str(exc))
 

@@ -107,6 +107,14 @@ VOLUME_ROOT = os.environ.get("CONSOLE_VOLUME_ROOT", "").rstrip("/")
 # the shared disk while everything else stays on the first one. Same layout and
 # the same never-delete rule. Unset refuses only the volumes that ask for it.
 NAS_ROOT = os.environ.get("CONSOLE_NAS_ROOT", "").rstrip("/")
+# Existing NAS folders an app may mount with [[shares]] (Nextcloud's external
+# storage, for one): <root>/<name> on the Docker host. Unlike volumes these
+# hold files other things own, so the install says which names an app may mount
+# and the most it may do to each: "drop:rw,atlas:ro". A name not listed, or
+# asked for read-write when listed ro, fails the deploy. Both unset refuses
+# every [[shares]] entry.
+SHARES_ROOT = os.environ.get("CONSOLE_SHARES_ROOT", "").rstrip("/")
+SHARES_ALLOW = os.environ.get("CONSOLE_SHARES_ALLOW", "")
 # A recreate stops a database or sync engine that must flush before it dies;
 # Docker's 10 s default ends in SIGKILL, the corruption recreate exists to avoid.
 RECREATE_STOP_TIMEOUT = 60  # seconds

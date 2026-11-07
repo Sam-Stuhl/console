@@ -946,6 +946,80 @@ async def test_mount_of_a_nas_volume_follows_it(
     }
 
 
+SHARER = """
+[app]
+name = "demo"
+subdomain = "app-demo"
+port = 80
+
+[[shares]]
+name = "drop"
+target = "/external/drop"
+mode = "rw"
+
+[[shares]]
+name = "atlas"
+target = "/external/atlas"
+"""
+
+
+async def test_shares_mount_allowed_folders_in_the_asked_mode(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "SHARES_ROOT", "/Volumes/tank/shares")
+    monkeypatch.setattr(config, "SHARES_ALLOW", "drop:rw,atlas:ro")
+    _, deployment, _ = await seed(sessions, toml=SHARER)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "live", row.failure_reason
+    (call,) = fake_docker.run_calls
+    assert call["volumes"] == {
+        "/Volumes/tank/shares/drop": {"bind": "/external/drop", "mode": "rw"},
+        "/Volumes/tank/shares/atlas": {"bind": "/external/atlas", "mode": "ro"},
+    }
+
+
+async def test_share_asked_rw_but_allowed_ro_fails(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "SHARES_ROOT", "/Volumes/tank/shares")
+    monkeypatch.setattr(config, "SHARES_ALLOW", "drop:ro,atlas")
+    _, deployment, _ = await seed(sessions, toml=SHARER)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "allowed read-only" in row.failure_reason
+    assert fake_docker.run_calls == []
+
+
+async def test_share_not_in_the_allowlist_fails(
+    sessions, fake_docker, healthy, monkeypatch
+):
+    monkeypatch.setattr(config, "SHARES_ROOT", "/Volumes/tank/shares")
+    monkeypatch.setattr(config, "SHARES_ALLOW", "drop:rw")
+    _, deployment, _ = await seed(sessions, toml=SHARER)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert 'share "atlas" is not in CONSOLE_SHARES_ALLOW' in row.failure_reason
+
+
+async def test_shares_without_a_root_fail(sessions, fake_docker, healthy):
+    _, deployment, _ = await seed(sessions, toml=SHARER)
+
+    await engine.run_deploy(deployment.id)
+
+    row = await reload(sessions, deployment.id)
+    assert row.status == "failed"
+    assert "CONSOLE_SHARES_ROOT" in row.failure_reason
+
+
 async def test_stateless_app_gets_no_volumes(sessions, fake_docker, healthy):
     _, deployment, _ = await seed(sessions)
     await engine.run_deploy(deployment.id)

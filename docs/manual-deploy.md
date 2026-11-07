@@ -54,6 +54,7 @@ Mapping from console.toml:
 | `--memory`, `--cpus`              | `[resources]`                           |
 | `-v <root>/<app>/<vol>:<target>`  | `[[volumes]]` (read-write)              |
 | `-v <root>/<app>/<vol>:<target>:ro` | `[[mounts]]` (always read-only)       |
+| `-v <shares>/<name>:<target>[:ro]` | `[[shares]]` (see below)                |
 
 `<root>` is the install's `CONSOLE_VOLUME_ROOT`, resolved on the Docker host
 (the Colima VM on macOS, so it must sit inside a Colima mount). An app names a
@@ -64,6 +65,15 @@ data outlives deploys, rollbacks and project deletes.
 A volume with `storage = "nas"` resolves under `CONSOLE_NAS_ROOT` instead, with
 the same layout, and a mount of it follows it there. Changing a live volume's
 `storage` moves nothing: copy the directory to the other root first.
+
+A `[[shares]]` entry (`name`, `target`, `mode = "ro"` or `"rw"`, default `ro`)
+mounts an existing folder, `<CONSOLE_SHARES_ROOT>/<name>`, for files other
+things own (the NAS's drop folder, say). The install caps it:
+`CONSOLE_SHARES_ALLOW` is a list like `drop:rw,atlas:ro`, and a name not in it,
+or `rw` where it says `ro`, fails the deploy. Both blank refuses every share.
+The root must sit inside a Colima mount, and the console user needs the
+matching rights on the folder: a container's own uid does not matter on a
+virtiofs mount, only the host user's does.
 
 ### Stateful apps: `[deploy] strategy = "recreate"`
 

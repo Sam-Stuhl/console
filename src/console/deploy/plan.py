@@ -213,6 +213,38 @@ def build_binds(
     return binds
 
 
+def parse_shares_allow(raw: str) -> dict[str, str]:
+    """"drop:rw,atlas:ro" to {"drop": "rw", "atlas": "ro"}. A bare name is ro."""
+    allowed: dict[str, str] = {}
+    for item in filter(None, (part.strip() for part in raw.split(","))):
+        name, _, mode = item.partition(":")
+        if mode not in ("", "ro", "rw"):
+            raise ValueError(f'CONSOLE_SHARES_ALLOW entry "{item}": mode must be ro or rw')
+        allowed[name] = mode or "ro"
+    return allowed
+
+
+def share_binds(cfg: ConsoleConfig, root: str, allow: str) -> dict[str, dict[str, str]]:
+    """Docker SDK `volumes=` for the app's [[shares]]: <root>/<name> on the
+    Docker host, in the mode the app asked for, only if the install allows it."""
+    if not cfg.shares:
+        return {}
+    if not root:
+        raise ValueError("this app declares [[shares]] but CONSOLE_SHARES_ROOT is not set")
+    if not root.startswith("/"):
+        raise ValueError(f'CONSOLE_SHARES_ROOT "{root}" must be an absolute path')
+    allowed = parse_shares_allow(allow)
+    binds = {}
+    for s in cfg.shares:
+        cap = allowed.get(s.name)
+        if cap is None:
+            raise ValueError(f'share "{s.name}" is not in CONSOLE_SHARES_ALLOW')
+        if s.mode == "rw" and cap != "rw":
+            raise ValueError(f'share "{s.name}" is allowed read-only, not read-write')
+        binds[posixpath.join(root, s.name)] = {"bind": s.target, "mode": s.mode}
+    return binds
+
+
 def check_storage(cfg: ConsoleConfig, others: list[ConsoleConfig]) -> None:
     """Rules that need the other projects' live configs.
 
